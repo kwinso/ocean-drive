@@ -1,0 +1,14 @@
+[package]
+name = "ocean-drive"
+description = "Full-sync solution for Google Drive on Linux"
+version = "0.1.0"
+authors = ["uwumouse <pythonisajoke@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+toml = "0.4.2"
+serde = "1.0"
+colored = "2.0.0"
+notify = "4.0.17"
+google-drive = "0.2.4"

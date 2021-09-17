@@ -1,0 +1,5 @@
+local_dir = "/home/mouse/ocean"
+
+[drive]
+name = "My Drive"
+dir = "sync-dir"
