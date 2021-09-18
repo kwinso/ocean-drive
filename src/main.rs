@@ -1,9 +1,9 @@
+mod auth;
 mod config;
 mod drive;
-mod redirect_listener;
-mod readline;
-mod auth;
 mod files;
+mod readline;
+mod redirect_listener;
 extern crate clap;
 use clap::{App, SubCommand};
 
@@ -17,9 +17,9 @@ use clap::{App, SubCommand};
 #[tokio::main]
 async fn main() {
     let matches = App::new("Ocean Drive")
-                .version("0.1.0")
-                .author("undermouse")
-                .about("Program to watch local files & sync them with Google Drive. Just like dropbox. But for Google Drive.")
+                .version(env!("CARGO_PKG_VERSION"))
+                .author(env!("CARGO_PKG_AUTHORS"))
+                .about(env!("CARGO_PKG_DESCRIPTION"))
                 .subcommand(
                     SubCommand::with_name("auth")
                         .about("Authorization managing.")

@@ -1,8 +1,8 @@
 [package]
 name = "ocean-drive"
-description = "Full-sync solution for Google Drive on Linux"
+description = "Watch local files & sync them with Google Drive. Just like dropbox. But for Google Drive."
 version = "0.1.0"
-authors = ["uwumouse <pythonisajoke@gmail.com>"]
+authors = ["undermouse"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
