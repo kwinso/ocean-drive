@@ -1,17 +1,25 @@
-extern crate notify;
-use crate::log;
 use notify::{watcher, RecursiveMode, Watcher};
 use std::path::Path;
 use std::sync::mpsc::channel;
 use std::time::Duration;
+use crate::config::DriveConfig;
+use crate::drive::GoogleDrive;
+use std::process::exit;
 
 pub struct Updates {}
 
 impl Updates {
-    pub fn local(path: String) {
+    pub async fn watch(drive_config: DriveConfig) {
+        let drive = GoogleDrive::new(drive_config);
+        println!("Done testing");
+    }
+    // fn watch_drive(drive: GoogleDrive) {
+
+    // } 
+    fn watch_local(path: String) {
         if !Path::new(&path).is_dir() {
-            log::error(format!("Root directory {:?} does not exist", path));
-            std::process::exit(1);
+            // log::error(format!("Root directory {:?} does not exist", path));
+            exit(1);
         }
         // Create a channel to receive the events.
         let (tx, rx) = channel();

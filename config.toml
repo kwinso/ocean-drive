@@ -1,5 +1,6 @@
 local_dir = "/home/mouse/ocean"
 
 [drive]
+creds_file = "./creds.toml"
 name = "My Drive"
 dir = "sync-dir"
