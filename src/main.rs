@@ -1,11 +1,17 @@
+// Mods that contair all functionality for subcommands
+mod setup;
+
 mod auth;
-mod config;
 mod drive;
+mod user;
 mod files;
 mod readline;
 mod redirect_listener;
+mod updates;
+mod parse_url;
 extern crate clap;
-use clap::{App, SubCommand};
+use clap::{App, SubCommand, ArgMatches};
+use std::process::exit;
 
 // TODO: Sync local and remote dirs
 //  - Create dir in Drive if needed
@@ -13,6 +19,19 @@ use clap::{App, SubCommand};
 //  - Sync dirs
 //  - Update remote if local is changed
 //  - vice versa
+//  - Setup for systemctl
+//  - Add icon to tray (idk what would be there, but do it) 
+
+async fn parse_args<'a>(matches: ArgMatches<'a>) -> Result<(), String> {
+    if let Some(_) = matches.subcommand_matches("setup") {
+        setup::run().await?;
+    }
+    if let Some(_) = matches.subcommand_matches("run") {
+        updates::Updates::new().watch().await?;
+    }
+
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() {
@@ -21,16 +40,22 @@ async fn main() {
                 .author(env!("CARGO_PKG_AUTHORS"))
                 .about(env!("CARGO_PKG_DESCRIPTION"))
                 .subcommand(
-                    SubCommand::with_name("auth")
-                        .about("Authorization managing.")
+                    SubCommand::with_name("setup")
+                        .about("Setup all variables needed start working.")
+                )
+                .subcommand(
+                    SubCommand::with_name("run")
+                        .about("Start synchronization.")
                 )
                 .get_matches();
 
-    let c = files::read_toml::<config::Config>("./config.toml");
+    // let c = files::read_toml::<config::Config>("./config.toml");
 
     // TODO: Add check for config file in the ~/.config folder. Create if does not exist. Or use the provided one
+    
 
-    if let Some(auth_matches) = matches.subcommand_matches("auth") {
-        auth::authorize().await;
+    if let Err(e) = parse_args(matches).await {
+        eprintln!("{}", e);
+        exit(1);
     }
 }

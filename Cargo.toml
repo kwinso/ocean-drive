@@ -9,9 +9,9 @@ edition = "2018"
 [dependencies]
 toml = "0.4.2"
 serde = "1.0"
-colored = "2.0.0"
 notify = "4.0.17"
 google-drive = "0.2.4"
 tokio = { version = "1", features = ["full"] }
-url = "2.2.2"
 clap = "2.33.3"
+urldecode = "0.1.1"
+regex = "1"

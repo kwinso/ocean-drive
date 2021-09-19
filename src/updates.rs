@@ -1,17 +1,26 @@
+/* Handle local & remote update and sync them */
+
 use notify::{watcher, RecursiveMode, Watcher};
 use std::path::Path;
 use std::sync::mpsc::channel;
 use std::time::Duration;
-use crate::config::DriveConfig;
 use crate::drive::GoogleDrive;
 use std::process::exit;
 
 pub struct Updates {}
 
 impl Updates {
-    pub async fn watch(drive_config: DriveConfig) {
-        let drive = GoogleDrive::new(drive_config);
-        println!("Done testing");
+    pub fn new() -> Self {
+        Self{}
+    }
+
+    pub async fn watch(self) -> Result<(), String> {
+        let drive = GoogleDrive::new().await?;
+        let about = drive.client.about().get().await;
+        
+        println!("{:#?}", about);
+
+        Ok(())
     }
     // fn watch_drive(drive: GoogleDrive) {
 

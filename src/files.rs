@@ -1,48 +1,42 @@
 use std::fs;
 use std::io::prelude::*;
-use std::path::{Path};
-use std::process::exit;
+use std::path::Path;
 use toml;
 
-
-pub fn read_toml<'a, T>(path: &str) -> T
+pub fn read_toml<'a, T>(path: &str) -> Result<T, String>
 where
-    T: serde::de::DeserializeOwned
+    T: serde::de::DeserializeOwned,
 {
     if !Path::new(path).exists() {
-        eprintln!("File does not exist: {}", path);
-        exit(1);
+        return Err(format!("File does not exist: {}", path));
     }
 
+    println!("{}", &path);
+
     let contents = fs::read_to_string(path).unwrap();
+
+    println!("{}", &contents);
+
     match toml::from_str(&contents) {
         Ok(r) => r,
-        Err(e) => {
-            eprintln!("Unable to load the config: {}", e);
-            exit(1);
-        }
+        Err(e) => Err(format!("Unable to load the config: {:#?}", e))
     }
 }
 
-pub fn write_toml<T>(data: T, path: &str) 
-where 
-    T: serde::ser::Serialize
+pub fn write_toml<T>(data: T, path: &str) -> Result<(), String>
+where
+    T: serde::ser::Serialize,
 {
-
-    let mut file = 
-        (if Path::new(path).exists() { 
-            fs::File::open(path) 
-        } else { 
-            fs::File::create(path) 
-        }).expect(&format!("Failed to open a file `{}`", path));
+    if Path::new(path).exists() {
+        fs::remove_file(path).unwrap();
+    }
+    let mut file = fs::File::create(path).unwrap(); 
 
     let toml = toml::to_string(&data).unwrap();
 
-    match file.write_all(toml.as_bytes()) {
-        Err(e) => {
-            eprintln!("Failed to save data to file `{}`. Error:\n{}", path, e);
+    if let Err(e) = file.write_all(toml.as_bytes()) {
+        return Err(format!("Failed to write data to file `{}`. Error:\n{:?}", path, e));
+    }
 
-        },
-        _ => {}
-    };
+    Ok(())
 }
