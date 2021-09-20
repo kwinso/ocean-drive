@@ -9,12 +9,13 @@ pub fn prompt(prompt: &str) -> Option<String> {
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
-        let ans = line.expect("Ubable to parse the text");
-        if ans.is_empty() {
-            return None;
-        } else {
-            return Some(ans);
+        if let Ok(ans) = line {
+            if !ans.is_empty() {
+                return Some(ans)
+            }
         }
+
+        return None;
     }
 
     None

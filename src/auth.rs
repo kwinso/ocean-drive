@@ -1,30 +1,19 @@
-use crate::{drive::GoogleDrive, files, parse_url, readline::prompt, user};
+use crate::{google_drive::{Client, Session}, files, parse_url, readline::prompt, user};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize)]
 pub struct Creds {
     pub client_id: String,
     pub client_secret: String,
 }
 
+
 pub async fn authorize() -> Result<(), String> {
     let creds = get_client_creds();
-    let mut drive_client = GoogleDrive::get_client(creds.0.clone(), creds.1.clone(), None, None);
+    let redirect_uri = "http://localhost:8080";
+    let mut drive_client = Client::new(creds.0.clone(), creds.1.clone(), redirect_uri.to_string());
 
-    // Get the URL to request consent from the user.
-    // You can optionally pass in scopes. If none are provided, then the
-    // resulting URL will not have any scopes.
-    let mut user_consent_url =
-        drive_client.user_consent_url(&["https://www.googleapis.com/auth/drive".to_string()]);
-
-    // replace empty domain with the working one
-    user_consent_url = user_consent_url.replacen(
-        "https://",
-        "https://accounts.google.com/o/oauth2/v2/auth",
-        1,
-    );
-    // Option to get refresh token
-    user_consent_url.push_str("&access_type=offline");
+    let user_consent_url = drive_client.get_user_authorization_url("https://www.googleapis.com/auth/drive", redirect_uri);
 
     // TODO: Maybe it'll be greate to automatically open the browser?
     // TODO: (of course ask the permission before!)
@@ -35,26 +24,23 @@ pub async fn authorize() -> Result<(), String> {
 
     // Wait for callback from user and get a requested URL
     let requested_url = crate::redirect_listener::get_callback().await.unwrap();
-    let query = parse_url::get_query(urldecode::decode(requested_url))
+    let query = parse_url::get_query(urlencoding::decode(&requested_url).unwrap().to_string())
         .expect("Failed to parse request url");
 
     // In your redirect URL capture the code sent and our state.
     // Send it along to the request for the token.
     let code = query.get("code");
-    let state = query.get("state");
 
-    if code.is_none() || state.is_none() {
+    if code.is_none() {
         return Err(
             "Unable to authorize app. Niether `code` or `state` variables was not set".to_string(),
         );
     }
 
-    let access_token = drive_client
-        .get_access_token(code.unwrap(), state.unwrap())
-        .await;
+    let session = drive_client.get_session_with_code(code.unwrap().to_string()).await;
 
-    match access_token {
-        Ok(tok) => {
+    match session {
+        Ok(session) => {
             println!("App is authorized. Saving user credentials and session files.");
             let creds = Creds {
                 client_id: creds.0,
@@ -64,19 +50,12 @@ pub async fn authorize() -> Result<(), String> {
             let home = user::get_home()?;
             let config_dir = home.join(".config/ocean-drive");
 
-            let creds_file = config_dir
-                .join("creds.toml")
-                .into_os_string()
-                .into_string()
-                .unwrap();
-            let session_file = config_dir
-                .join("session.toml")
-                .into_os_string()
-                .into_string()
-                .unwrap();
+            let creds_file = config_dir.join("creds.toml");
+            let session_file = config_dir.join("session.toml");
+                
 
-            files::write_toml::<google_drive::AccessToken>(tok, &session_file)?;
-            files::write_toml::<Creds>(creds, &creds_file)?;
+            files::write_toml(session, &session_file)?;
+            files::write_toml(creds, &creds_file)?;
             Ok(())
         }
         Err(e) => Err(format!("Failed to authorize the app. Error: {}", e)),

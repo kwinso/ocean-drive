@@ -1,9 +1,7 @@
 /* Setup program to be ready to start */
 
-use crate::user;
-use crate::{auth, files, readline};
+use crate::{auth, files, readline, user, google_drive::Config as DriveConfig};
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::fs;
 use std::path::Path;
 
@@ -13,12 +11,6 @@ pub struct Config {
     pub drive: DriveConfig,
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct DriveConfig {
-    pub name: String,
-    // TODO: Make optional
-    pub dir: String,
-}
 
 pub async fn run() -> Result<(), String> {
     auth::authorize().await?;
@@ -45,14 +37,11 @@ fn create_configuration_dir() -> Result<(), String> {
 
 /* Gathers configurations from user and saves it to a file */
 fn set_configurations() -> Result<(), String> {
-    let local_dir_prompt = "Which directory will be used as local root for your drive?";
-
     let home = user::get_home()?;
-    let local_dir = home
-        .join("ocean")
-        .into_os_string()
-        .into_string()
-        .unwrap();
+    let default_local_dir = &home.join("ocean");
+
+    let local_dir_prompt = "Which directory will be used as local root for your drive?";
+    let local_dir = readline::promt_default(local_dir_prompt, default_local_dir.to_str().unwrap());
 
     let drive_name =
         readline::promt_default("Enter a name for drive that will be synced", "My Drive");
@@ -68,19 +57,11 @@ fn set_configurations() -> Result<(), String> {
     let config = Config {
         local_dir,
         drive: DriveConfig {
-            name: drive_name,
             dir: remote_dir,
         },
     };
 
-    files::write_toml::<Config>(
-        config,
-        &home
-            .join(".config/ocean-drive/config.toml")
-            .into_os_string()
-            .into_string()
-            .unwrap(),
-    );
-    
+    files::write_toml::<Config>(config, &home.join(".config/ocean-drive/config.toml"))?;
+
     Ok(())
 }

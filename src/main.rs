@@ -2,8 +2,9 @@
 mod setup;
 
 mod auth;
-mod drive;
 mod user;
+mod requests;
+mod google_drive;
 mod files;
 mod readline;
 mod redirect_listener;
@@ -27,7 +28,7 @@ async fn parse_args<'a>(matches: ArgMatches<'a>) -> Result<(), String> {
         setup::run().await?;
     }
     if let Some(_) = matches.subcommand_matches("run") {
-        updates::Updates::new().watch().await?;
+        let upd = updates::Updates::new().await?;
     }
 
     Ok(())
