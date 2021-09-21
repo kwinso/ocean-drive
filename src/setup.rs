@@ -11,8 +11,7 @@ pub struct Config {
     pub drive: DriveConfig,
 }
 
-
-pub async fn run() -> Result<(), String> {
+pub async fn run() -> Result<(), ()> {
     auth::authorize().await?;
 
     create_configuration_dir()?;
@@ -22,7 +21,7 @@ pub async fn run() -> Result<(), String> {
 }
 
 /* Creates configuration dir if not exists */
-fn create_configuration_dir() -> Result<(), String> {
+fn create_configuration_dir() -> Result<(), ()> {
     let home = user::get_home()?
         .join(".config/ocean-drive")
         .into_os_string()
@@ -36,7 +35,7 @@ fn create_configuration_dir() -> Result<(), String> {
 }
 
 /* Gathers configurations from user and saves it to a file */
-fn set_configurations() -> Result<(), String> {
+fn set_configurations() -> Result<(), ()> {
     let home = user::get_home()?;
     let default_local_dir = &home.join("ocean");
 

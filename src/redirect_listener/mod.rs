@@ -2,7 +2,6 @@ use std::{
     io::prelude::*,
     net::{TcpListener, TcpStream},
 };
-use std::process::exit;
 
 fn handle_request(mut stream: TcpStream) -> Option<String> {
     let mut buffer = [0; 1000];
@@ -40,16 +39,11 @@ pub async fn get_callback() -> Result<String, ()> {
                             return Ok(url);
                         }
                     }
-                    Err(e) => {
-                        println!("Error: {}", e);
-                    }
+                    Err(e) => eprintln!("Error: {}", e)
                 };
             }
         }
-        Err(e) => {
-            eprintln!("{}", e);
-            exit(1);
-        }
+        Err(e) => eprintln!("Unable to bind listener on port 8080.\nError: {}", e)
     }
 
     Err(())

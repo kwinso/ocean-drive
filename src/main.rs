@@ -3,7 +3,6 @@ mod setup;
 
 mod auth;
 mod user;
-mod requests;
 mod google_drive;
 mod files;
 mod readline;
@@ -22,13 +21,17 @@ use std::process::exit;
 //  - vice versa
 //  - Setup for systemctl
 //  - Add icon to tray (idk what would be there, but do it) 
+//  - Add functionality to get out of some errors (like with not existing authorization and etc.)
 
-async fn parse_args<'a>(matches: ArgMatches<'a>) -> Result<(), String> {
+async fn parse_args<'a>(matches: ArgMatches<'a>) -> Result<(), ()> {
     if let Some(_) = matches.subcommand_matches("setup") {
         setup::run().await?;
     }
     if let Some(_) = matches.subcommand_matches("run") {
-        let upd = updates::Updates::new().await?;
+        updates::Updates::new().await?;
+    }
+    if let Some(_) = matches.subcommand_matches("auth") {
+        auth::authorize().await?;
     }
 
     Ok(())
@@ -48,15 +51,19 @@ async fn main() {
                     SubCommand::with_name("run")
                         .about("Start synchronization.")
                 )
+                .subcommand(
+                    SubCommand::with_name("auth")
+                        .about("Run process of app authorization.")
+                )
                 .get_matches();
 
     // let c = files::read_toml::<config::Config>("./config.toml");
 
-    // TODO: Add check for config file in the ~/.config folder. Create if does not exist. Or use the provided one
+    // TODO: Add check for config file in the ~/.config folder. Create if does not exist. Or use the provided one from cli args
     
 
-    if let Err(e) = parse_args(matches).await {
-        eprintln!("{}", e);
+    if let Err(_) = parse_args(matches).await {
+        eprintln!("Stopped because of error.");
         exit(1);
     }
 }

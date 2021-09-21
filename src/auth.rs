@@ -1,4 +1,10 @@
-use crate::{google_drive::{Client, Session}, files, parse_url, readline::prompt, user};
+use crate::{
+    files,
+    google_drive::{Client},
+    parse_url,
+    readline::prompt,
+    redirect_listener, user,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -7,14 +13,48 @@ pub struct Creds {
     pub client_secret: String,
 }
 
-
-pub async fn authorize() -> Result<(), String> {
+pub async fn authorize() -> Result<(), ()> {
     let creds = get_client_creds();
     let redirect_uri = "http://localhost:8080";
     let mut drive_client = Client::new(creds.0.clone(), creds.1.clone(), redirect_uri.to_string());
 
-    let user_consent_url = drive_client.get_user_authorization_url("https://www.googleapis.com/auth/drive", redirect_uri);
+    let user_consent_url = drive_client
+        .get_user_authorization_url("https://www.googleapis.com/auth/drive", redirect_uri);
 
+    let auth_code = get_auth_code(user_consent_url).await;
+    
+    if let Ok(code) = auth_code {
+        let session = drive_client
+            .authorize_with_code(code.to_string())
+            .await;
+
+        println!("App is authorized. Saving user credentials and session files.");
+
+        let creds = Creds {
+            client_id: creds.0,
+            client_secret: creds.1,
+        };
+
+        let home = user::get_home();
+        if let Ok(home) = home {
+            let config_dir = home.join(".config/ocean-drive");
+
+            let creds_file = config_dir.join("creds.toml");
+            let session_file = config_dir.join("session.toml");
+    
+            files::write_toml(session, &session_file)?;
+            files::write_toml(creds, &creds_file)?;
+            
+            return Ok(());
+        }
+
+        return Err(());
+    }
+
+    Err(())
+}
+
+async fn get_auth_code(user_consent_url: String) -> Result<String, ()> {
     // TODO: Maybe it'll be greate to automatically open the browser?
     // TODO: (of course ask the permission before!)
     println!(
@@ -22,43 +62,28 @@ pub async fn authorize() -> Result<(), String> {
         user_consent_url
     );
 
-    // Wait for callback from user and get a requested URL
-    let requested_url = crate::redirect_listener::get_callback().await.unwrap();
-    let query = parse_url::get_query(urlencoding::decode(&requested_url).unwrap().to_string())
-        .expect("Failed to parse request url");
+    match redirect_listener::get_callback().await {
+        Ok(url) => {
+            match parse_url::get_query(urlencoding::decode(&url).unwrap().to_string()) {
+                Ok(query) => {
+                    // In your redirect URL capture the code sent and our state.
+                    // Send it along to the request for the token.
+                    let code = query.get("code");
 
-    // In your redirect URL capture the code sent and our state.
-    // Send it along to the request for the token.
-    let code = query.get("code");
+                    if code.is_none() {
+                        eprintln!("Unable to get authorization code from Google.");
+                        return Err(());
+                    }
 
-    if code.is_none() {
-        return Err(
-            "Unable to authorize app. Niether `code` or `state` variables was not set".to_string(),
-        );
-    }
-
-    let session = drive_client.get_session_with_code(code.unwrap().to_string()).await;
-
-    match session {
-        Ok(session) => {
-            println!("App is authorized. Saving user credentials and session files.");
-            let creds = Creds {
-                client_id: creds.0,
-                client_secret: creds.1,
-            };
-
-            let home = user::get_home()?;
-            let config_dir = home.join(".config/ocean-drive");
-
-            let creds_file = config_dir.join("creds.toml");
-            let session_file = config_dir.join("session.toml");
-                
-
-            files::write_toml(session, &session_file)?;
-            files::write_toml(creds, &creds_file)?;
-            Ok(())
+                    Ok(code.unwrap().to_string())
+                }
+                Err(e) => {
+                    eprintln!("Error while getting authorization code:\n{}", e);
+                    Err(())
+                }
+            }
         }
-        Err(e) => Err(format!("Failed to authorize the app. Error: {}", e)),
+        Err(_) => Err(()),
     }
 }
 
