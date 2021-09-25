@@ -2,12 +2,12 @@
 mod setup;
 
 mod auth;
+mod sync;
 mod user;
 mod google_drive;
 mod files;
 mod readline;
 mod redirect_listener;
-mod updates;
 mod parse_url;
 extern crate clap;
 use clap::{App, SubCommand, ArgMatches};
@@ -22,13 +22,14 @@ use std::process::exit;
 //  - Setup for systemctl
 //  - Add icon to tray (idk what would be there, but do it) 
 //  - Add functionality to get out of some errors (like with not existing authorization and etc.)
+//  - Remote root can be placed not in the root of the Drive 
 
 async fn parse_args<'a>(matches: ArgMatches<'a>) -> Result<(), ()> {
     if let Some(_) = matches.subcommand_matches("setup") {
         setup::run().await?;
     }
     if let Some(_) = matches.subcommand_matches("run") {
-        updates::Updates::new().await?;
+        sync::run().await?;
     }
     if let Some(_) = matches.subcommand_matches("auth") {
         auth::authorize().await?;

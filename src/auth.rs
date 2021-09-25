@@ -1,6 +1,6 @@
 use crate::{
     files,
-    google_drive::{Client},
+    google_drive::{errors::DriveClientError, Client},
     parse_url,
     readline::prompt,
     redirect_listener, user,
@@ -22,33 +22,43 @@ pub async fn authorize() -> Result<(), ()> {
         .get_user_authorization_url("https://www.googleapis.com/auth/drive", redirect_uri);
 
     let auth_code = get_auth_code(user_consent_url).await;
-    
+
     if let Ok(code) = auth_code {
-        let session = drive_client
-            .authorize_with_code(code.to_string())
-            .await;
+        match drive_client.authorize_with_code(code.to_string()).await {
+            Ok(session) => {
+                println!("App is authorized. Saving user credentials and session files.");
 
-        println!("App is authorized. Saving user credentials and session files.");
+                let creds = Creds {
+                    client_id: creds.0,
+                    client_secret: creds.1,
+                };
 
-        let creds = Creds {
-            client_id: creds.0,
-            client_secret: creds.1,
-        };
+                let home = user::get_home();
+                if let Ok(home) = home {
+                    let config_dir = home.join(".config/ocean-drive");
 
-        let home = user::get_home();
-        if let Ok(home) = home {
-            let config_dir = home.join(".config/ocean-drive");
+                    let creds_file = config_dir.join("creds.toml");
+                    let session_file = config_dir.join("session.toml");
 
-            let creds_file = config_dir.join("creds.toml");
-            let session_file = config_dir.join("session.toml");
-    
-            files::write_toml(session, &session_file)?;
-            files::write_toml(creds, &creds_file)?;
-            
-            return Ok(());
+                    files::write_toml(session, &session_file)?;
+                    files::write_toml(creds, &creds_file)?;
+
+                    return Ok(());
+                }
+
+                return Err(());
+            }
+            Err(e) => {
+                match e {
+                    DriveClientError::Unauthorized => {
+                        eprintln!("Bad authorization code. Responded with 401");
+                    }
+                    _ => {}
+                }
+
+                return Err(());
+            }
         }
-
-        return Err(());
     }
 
     Err(())
