@@ -1,4 +1,5 @@
 mod remote;
+mod versions;
 
 use crate::{
     auth::Creds,
@@ -8,28 +9,39 @@ use crate::{
     user,
 };
 use std::path::PathBuf;
-
+use std::sync::{Arc, Mutex};
+use std::thread;
+use versions::Versions;
 /*
     Setups two listeneres for updates: local and remote.
     Allows to share mutable google drive client between the two.
 */
-pub async fn run() -> Result<(), ()> {
+pub fn run() -> Result<(), ()> {
     let conf_dir = user::get_home()?.join(".config/ocean-drive");
     let conf_file = conf_dir.join("config.toml");
 
-    let client = setup_client(&conf_dir).await?;
+    let client = Arc::new(Mutex::new(setup_client(&conf_dir)?));
     let config = files::read_toml::<AppConfig>(&conf_file)?;
-    let mut remote_manager = remote::RemoteManager::new(config, client.clone()).await?;
-
-    // ToDo: Create versions file if not exists
+    let versions = Arc::new(Mutex::new(Versions::new(conf_dir.join("versions.json"))?));
 
     // Todo: throw it in own thread + some error handling
-    remote_manager.start().await;
+
+    let cl = Arc::clone(&client);
+    let ver = Arc::clone(&versions);
+    let remote_watcher = thread::spawn(move || {
+        let mut remote_manager = remote::RemoteManager::new(config, cl.clone(), ver).unwrap();
+        remote_manager.start().unwrap();
+    });
+
+    let cloned = Arc::clone(&client);
+    // let local_watcher = thread::spawn(move || {});
+
+    remote_watcher.join().unwrap();
 
     Ok(())
 }
 
-async fn setup_client(conf_dir: &PathBuf) -> Result<Client, ()> {
+fn setup_client(conf_dir: &PathBuf) -> Result<Client, ()> {
     let session_file = conf_dir.join("session.toml");
     let creds_file = conf_dir.join("creds.toml");
 
@@ -56,7 +68,7 @@ async fn setup_client(conf_dir: &PathBuf) -> Result<Client, ()> {
 
     // ToDo: Ask for authorization if unable to get new token
     if session.refresh_token.is_some() {
-        match client.refresh_token().await {
+        match client.refresh_token() {
             Ok(new_session) => {
                 files::write_toml(new_session, &session_file)?;
 

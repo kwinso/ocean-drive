@@ -27,7 +27,7 @@ fn handle_request(mut stream: TcpStream) -> Option<String> {
     None
 }
 
-pub async fn get_callback() -> Result<String, ()> {
+pub fn get_callback() -> Result<String, ()> {
     let listener = TcpListener::bind("127.0.0.1:8080");
 
     match listener {

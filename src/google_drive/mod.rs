@@ -2,7 +2,7 @@ pub mod errors;
 pub mod types;
 use bytes;
 use errors::DriveClientError;
-use reqwest::Client as HttpClient;
+use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use types::FileList;
 
@@ -50,11 +50,11 @@ impl Client {
         self.auth = Some(s);
     }
 
-    async fn get(
+    fn get(
         &self,
         url: &str,
         query: &[(&str, &str)],
-    ) -> Result<reqwest::Response, DriveClientError> {
+    ) -> Result<reqwest::blocking::Response, DriveClientError> {
         if let Some(auth) = &self.auth {
             match self
                 .http
@@ -63,7 +63,6 @@ impl Client {
                 .header("Content-Type", "application/json")
                 .query(query)
                 .send()
-                .await
             {
                 Ok(resp) => {
                     if resp.status() == 401 {
@@ -79,12 +78,12 @@ impl Client {
         Err(DriveClientError::NoAuthorization)
     }
 
-    async fn get_json<T>(&self, url: &str, query: &[(&str, &str)]) -> Result<T, DriveClientError>
+    fn get_json<T>(&self, url: &str, query: &[(&str, &str)]) -> Result<T, DriveClientError>
     where
         T: serde::de::DeserializeOwned,
     {
-        match self.get(url, query).await {
-            Ok(resp) => match resp.json::<T>().await {
+        match self.get(url, query) {
+            Ok(resp) => match resp.json::<T>() {
                 Ok(data) => Ok(data),
                 Err(e) => {
                     eprintln!("Failed to desirialize JSON data.\nError: {}", e);
@@ -95,7 +94,7 @@ impl Client {
         }
     }
 
-    async fn get_token(
+    fn get_token(
         &self,
         refresh: bool,
         auth_code: Option<String>,
@@ -120,13 +119,12 @@ impl Client {
             .post("https://oauth2.googleapis.com/token")
             .form(&params)
             .send()
-            .await
         {
             Ok(resp) => {
                 if resp.status() == 401 {
                     return Err(DriveClientError::Unauthorized);
                 }
-                match resp.json::<Session>().await {
+                match resp.json::<Session>() {
                     Ok(session) => Ok(session),
                     Err(e) => {
                         println!("Failed to deserialize auth data.\nError: {}", e);
@@ -141,19 +139,17 @@ impl Client {
         }
     }
 
-    pub async fn authorize_with_code(&mut self, code: String) -> Result<Session, DriveClientError> {
-        let session = self.get_token(false, Some(code.clone()), None).await?;
+    pub fn authorize_with_code(&mut self, code: String) -> Result<Session, DriveClientError> {
+        let session = self.get_token(false, Some(code.clone()), None)?;
         self.set_session(session.clone());
 
         Ok(session)
     }
 
-    pub async fn refresh_token(&mut self) -> Result<Session, DriveClientError> {
+    pub fn refresh_token(&mut self) -> Result<Session, DriveClientError> {
         if let Some(auth) = &self.auth {
             if let Some(refresh_token) = &auth.refresh_token {
-                let mut new_session = self
-                    .get_token(true, None, Some(refresh_token.clone()))
-                    .await?;
+                let mut new_session = self.get_token(true, None, Some(refresh_token.clone()))?;
 
                 new_session.refresh_token = Some(String::from(refresh_token));
                 self.set_session(new_session.clone());
@@ -166,33 +162,29 @@ impl Client {
         Err(DriveClientError::NoAuthorization)
     }
 
-    pub async fn list_files(
+    pub fn list_files(
         &self,
         query: Option<&str>,
         fields: Option<&str>,
     ) -> Result<FileList, DriveClientError> {
-        let list = self
-            .get_json::<FileList>(
-                "https://www.googleapis.com/drive/v3/files",
-                &[
-                    ("q", query.unwrap_or("")),
-                    ("fields", fields.unwrap_or("*")),
-                ],
-            )
-            .await?;
+        let list = self.get_json::<FileList>(
+            "https://www.googleapis.com/drive/v3/files",
+            &[
+                ("q", query.unwrap_or("")),
+                ("fields", fields.unwrap_or("*")),
+            ],
+        )?;
 
         Ok(list)
     }
 
-    pub async fn download_file(&self, id: String) -> Result<bytes::Bytes, DriveClientError> {
-        match self
-            .get(
-                &format!("https://www.googleapis.com/drive/v3/files/{}", id),
-                &[("alt", "media")],
-            )
-            .await {
-                Ok(resp) => Ok(resp.bytes().await.unwrap()),
-                Err(e) => Err(e)
-            }
+    pub fn download_file(&self, id: String) -> Result<bytes::Bytes, DriveClientError> {
+        match self.get(
+            &format!("https://www.googleapis.com/drive/v3/files/{}", id),
+            &[("alt", "media")],
+        ) {
+            Ok(resp) => Ok(resp.bytes().unwrap()),
+            Err(e) => Err(e),
+        }
     }
 }

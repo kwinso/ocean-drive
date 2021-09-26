@@ -13,7 +13,7 @@ extern crate clap;
 use clap::{App, SubCommand, ArgMatches};
 use std::process::exit;
 
-// TODO: Sync local and remote dirs
+// TODO: 
 //  - Create dir in Drive if needed
 //  - Create local dir if needed
 //  - Sync dirs
@@ -22,24 +22,24 @@ use std::process::exit;
 //  - Setup for systemctl
 //  - Add icon to tray (idk what would be there, but do it) 
 //  - Add functionality to get out of some errors (like with not existing authorization and etc.)
-//  - Remote root can be placed not in the root of the Drive 
+//  - Synced folder can be either the whole drive or folder in the root of the drive
+//  - Multiple drives synchronization, namespacing for configurations (with subfolders in config folder)
 
-async fn parse_args<'a>(matches: ArgMatches<'a>) -> Result<(), ()> {
+fn parse_args<'a>(matches: ArgMatches<'a>) -> Result<(), ()> {
     if let Some(_) = matches.subcommand_matches("setup") {
-        setup::run().await?;
+        setup::run()?;
     }
     if let Some(_) = matches.subcommand_matches("run") {
-        sync::run().await?;
+        sync::run()?;
     }
     if let Some(_) = matches.subcommand_matches("auth") {
-        auth::authorize().await?;
+        auth::authorize()?;
     }
 
     Ok(())
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let matches = App::new("Ocean Drive")
                 .version(env!("CARGO_PKG_VERSION"))
                 .author(env!("CARGO_PKG_AUTHORS"))
@@ -63,7 +63,7 @@ async fn main() {
     // TODO: Add check for config file in the ~/.config folder. Create if does not exist. Or use the provided one from cli args
     
 
-    if let Err(_) = parse_args(matches).await {
+    if let Err(_) = parse_args(matches) {
         eprintln!("Stopped because of error.");
         exit(1);
     }

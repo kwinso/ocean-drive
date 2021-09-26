@@ -9,6 +9,7 @@ pub struct FileList {
 pub struct File {
     pub id: Option<String>,
     pub name: Option<String>,
+    pub trashed: Option<bool>,
     #[serde(rename = "mimeType")]
     pub mime_type: Option<String>,
     pub version: Option<String>,

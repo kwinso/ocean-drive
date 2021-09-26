@@ -5,16 +5,23 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+// TODO: Add function for help
+// TODO:    This function should display help message about advanced configuration 
+// TODO:    in ~/.config/ocean-drive/config.toml file
+// ToDo: Add configuration for update timeout (how often check for updates from the remote)
+
+
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Config {
     pub local_dir: String,
     pub drive: DriveConfig,
 }
 
-pub async fn run() -> Result<(), ()> {
-    auth::authorize().await?;
+pub fn run() -> Result<(), ()> {
+    auth::authorize()?;
 
     create_configuration_dir()?;
+    // Todo: some validation for user fields
     set_configurations()?;
 
     Ok(())

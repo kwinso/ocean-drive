@@ -13,7 +13,7 @@ pub struct Creds {
     pub client_secret: String,
 }
 
-pub async fn authorize() -> Result<(), ()> {
+pub fn authorize() -> Result<(), ()> {
     let creds = get_client_creds();
     let redirect_uri = "http://localhost:8080";
     let mut drive_client = Client::new(creds.0.clone(), creds.1.clone(), redirect_uri.to_string());
@@ -21,10 +21,10 @@ pub async fn authorize() -> Result<(), ()> {
     let user_consent_url = drive_client
         .get_user_authorization_url("https://www.googleapis.com/auth/drive", redirect_uri);
 
-    let auth_code = get_auth_code(user_consent_url).await;
+    let auth_code = get_auth_code(user_consent_url);
 
     if let Ok(code) = auth_code {
-        match drive_client.authorize_with_code(code.to_string()).await {
+        match drive_client.authorize_with_code(code.to_string()) {
             Ok(session) => {
                 println!("App is authorized. Saving user credentials and session files.");
 
@@ -64,7 +64,7 @@ pub async fn authorize() -> Result<(), ()> {
     Err(())
 }
 
-async fn get_auth_code(user_consent_url: String) -> Result<String, ()> {
+fn get_auth_code(user_consent_url: String) -> Result<String, ()> {
     // TODO: Maybe it'll be greate to automatically open the browser?
     // TODO: (of course ask the permission before!)
     println!(
@@ -72,7 +72,7 @@ async fn get_auth_code(user_consent_url: String) -> Result<String, ()> {
         user_consent_url
     );
 
-    match redirect_listener::get_callback().await {
+    match redirect_listener::get_callback() {
         Ok(url) => {
             match parse_url::get_query(urlencoding::decode(&url).unwrap().to_string()) {
                 Ok(query) => {
