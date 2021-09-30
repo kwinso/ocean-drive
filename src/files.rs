@@ -5,6 +5,7 @@ use std::{
 };
 use toml;
 
+// Todo: use OpenOptions to open files (more convinient)
 pub fn read_toml<'a, T>(path: &PathBuf) -> Result<T, ()>
 where
     T: serde::de::DeserializeOwned,

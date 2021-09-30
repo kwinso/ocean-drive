@@ -4,7 +4,7 @@ use bytes;
 use errors::DriveClientError;
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
-use types::FileList;
+use types::{File, FileList};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Session {
@@ -52,7 +52,7 @@ impl Client {
 
     fn get(
         &self,
-        url: &str,
+        url: String,
         query: &[(&str, &str)],
     ) -> Result<reqwest::blocking::Response, DriveClientError> {
         if let Some(auth) = &self.auth {
@@ -78,7 +78,7 @@ impl Client {
         Err(DriveClientError::NoAuthorization)
     }
 
-    fn get_json<T>(&self, url: &str, query: &[(&str, &str)]) -> Result<T, DriveClientError>
+    fn get_json<T>(&self, url: String, query: &[(&str, &str)]) -> Result<T, DriveClientError>
     where
         T: serde::de::DeserializeOwned,
     {
@@ -167,20 +167,24 @@ impl Client {
         query: Option<&str>,
         fields: Option<&str>,
     ) -> Result<FileList, DriveClientError> {
-        let list = self.get_json::<FileList>(
-            "https://www.googleapis.com/drive/v3/files",
+        self.get_json::<FileList>(
+            "https://www.googleapis.com/drive/v3/files".to_string(),
             &[
                 ("q", query.unwrap_or("")),
                 ("fields", fields.unwrap_or("*")),
             ],
-        )?;
-
-        Ok(list)
+        )
     }
 
-    pub fn download_file(&self, id: String) -> Result<bytes::Bytes, DriveClientError> {
+    pub fn get_file_info(&self, id: &str) -> Result<File, DriveClientError> {
+        self.get_json(
+            format!("https://www.googleapis.com/drive/v3/files/{}", id),
+            &[("fields", "id, name, mimeType, parents, version")],
+        )
+    }
+    pub fn download_file(&self, id: &str) -> Result<bytes::Bytes, DriveClientError> {
         match self.get(
-            &format!("https://www.googleapis.com/drive/v3/files/{}", id),
+            format!("https://www.googleapis.com/drive/v3/files/{}", id),
             &[("alt", "media")],
         ) {
             Ok(resp) => Ok(resp.bytes().unwrap()),

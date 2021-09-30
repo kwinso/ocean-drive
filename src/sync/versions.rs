@@ -5,15 +5,16 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::fs;
-use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct VersionLog {
+    pub is_folder: bool,
+    pub parent_id: String,
     pub version: String,
     // pub local_hash: String,
-    // pub remote_hash: String,
+    pub path: String, // pub remote_hash: String,
 }
 
 pub type VersionsList = std::collections::HashMap<String, VersionLog>;
@@ -24,24 +25,22 @@ pub struct Versions {
 
 impl Versions {
     pub fn new(path: PathBuf) -> Result<Self, ()> {
-        let file: io::Result<fs::File>;
-
-        if !path.exists() {
-            file = fs::File::create(&path);
-        } else {
-            file = fs::File::create(&path)
-        }
-
-        match file {
+        // Check if file accessible
+        match fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&path)
+        {
             Ok(_) => Ok(Self { path }),
             Err(e) => {
-                eprintln!("Unable to create versions file, this file is required for program to work.\nError: {}", e);
+                eprintln!("Unable to access versions file, this file is required for program to work.\nError: {}", e);
                 Err(())
             }
         }
     }
 
-    pub fn get_all(&self) -> Result<VersionsList, ()> {
+    pub fn list(&self) -> Result<VersionsList, ()> {
         match fs::read_to_string(&self.path) {
             Ok(content) => match serde_json::from_str::<VersionsList>(content.as_str()) {
                 Ok(r) => Ok(r),
@@ -54,25 +53,11 @@ impl Versions {
         }
     }
 
-    pub fn get(&self, id: String) -> Result<Option<VersionLog>, ()> {
-        let versions = self.get_all()?;
-
-        if versions.contains_key(&id) {
-            let entry = versions.get(&id).unwrap().clone();
-            return Ok(Some(entry));
-        }
-
-        Ok(None)
-    }
-
-    pub fn set(&self, id: String, log: VersionLog) -> Result<(), ()> {
-        let mut versions = self.get_all()?;
-
-        versions.entry(id).or_insert(log);
-
+    pub fn save(&self, versions: VersionsList) -> Result<(), ()> {
         match fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
             .write(true)
-            .append(false)
             .open(&self.path)
         {
             Ok(mut f) => {
@@ -86,7 +71,7 @@ impl Versions {
                 }
             }
             Err(e) => {
-                eprintln!("Failed to open versions file.\nError: {}", e);
+                eprintln!("Failed to access versions file.\nError: {}", e);
                 Err(())
             }
         }
