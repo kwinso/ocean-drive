@@ -2,6 +2,7 @@ use std::{
     io::prelude::*,
     net::{TcpListener, TcpStream},
 };
+use anyhow::{Result, bail};
 
 fn handle_request(mut stream: TcpStream) -> Option<String> {
     let mut buffer = [0; 1000];
@@ -27,7 +28,7 @@ fn handle_request(mut stream: TcpStream) -> Option<String> {
     None
 }
 
-pub fn get_callback() -> Result<String, ()> {
+pub fn get_callback() -> Result<String> {
     let listener = TcpListener::bind("127.0.0.1:8080");
 
     match listener {
@@ -43,10 +44,10 @@ pub fn get_callback() -> Result<String, ()> {
                 };
             }
         }
-        Err(e) => eprintln!("Unable to bind listener on port 8080.\nError: {}", e)
+        Err(e) => bail!("Unable to setup listener on port 8080 for getting authorization code.\nError info: {}", e)
     }
 
-    Err(())
+    bail!("App was unable to get authorization code from Google API");
 }
 
 fn success_res(mut stream: TcpStream) {

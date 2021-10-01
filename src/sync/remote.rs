@@ -2,10 +2,11 @@
     Handles all the logic about handling updates from the remote drive, uploading and downloading files
     from remote to local
 */
-use crate::google_drive::{errors::DriveClientError, types::File, Client};
+use crate::google_drive::{errors::DriveError, types::File, Client};
 use crate::setup::Config;
 use crate::sync::versions::VersionLog;
 use crate::sync::Versions;
+use anyhow::{bail, Result};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -30,7 +31,7 @@ impl RemoteManager {
         config: Config,
         client_ref: Arc<Mutex<Client>>,
         versions: Arc<Mutex<Versions>>,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self> {
         let client = client_ref.lock().unwrap();
 
         match client.list_files(
@@ -42,11 +43,10 @@ impl RemoteManager {
         ) {
             Ok(list) => {
                 if list.files.len() == 0 {
-                    eprintln!(
+                    bail!(
                         "Folder with name '{}' not found in the root of your drive.",
                         config.drive.dir
                     );
-                    return Err(());
                 }
                 let root_dir = list.files[0].clone();
 
@@ -61,14 +61,18 @@ impl RemoteManager {
                 })
             }
             Err(e) => {
-                match e {
-                    DriveClientError::Unauthorized => {
-                        // todo: re-authorize
+                if let Some(err) = e.downcast_ref::<DriveError>() {
+                    match err {
+                        DriveError::Unauthorized => {
+                            // todo: re-authorize
+                        }
                     }
-                    _ => {}
                 }
 
-                return Err(());
+                bail!(
+                    "Fail! Unable to instantiate Remote Files Manager.\nDetails: {}",
+                    e
+                );
             }
         }
     }
@@ -89,7 +93,7 @@ impl RemoteManager {
         }
     }
 
-    pub fn start(&mut self) -> Result<(), ()> {
+    pub fn start(&mut self) -> Result<()> {
         loop {
             let versions = self.lock_versions();
             let mut versions_list = versions.list().unwrap();
@@ -102,23 +106,29 @@ impl RemoteManager {
                 &mut versions_list,
             ) {
                 Ok(_) => {}
-                Err(e) => match e {
-                    DriveClientError::Unauthorized => {
-                        match client.refresh_token() {
-                            Err(_) => {
-                                eprintln!("Failed to update authorization data for app.\nPlease run `ocean-drive auth` to renew authorization data and then start the program again.");
-                                return Err(());
+                Err(e) => {
+                    if let Ok(err) = e.downcast::<DriveError>() {
+                        match err {
+                            DriveError::Unauthorized => {
+                                match client.refresh_token() {
+                                    Err(_) => {
+                                        bail!("Failed to update authorization data for app.\nPlease run `ocean-drive auth` to renew authorization data and then start the program again.");
+                                    }
+                                    Ok(_) => {
+                                        // Todo: Add counter for attempts
+                                        println!(
+                                            "Refresh token is updated. Trying to fetch files again"
+                                        );
+                                        drop(client);
+                                    }
+                                };
+                                continue;
                             }
-                            Ok(_) => {
-                                // Todo: Add counter for attempts
-                                println!("Refresh token is updating. Trying to fetch files again");
-                                drop(client);
-                            }
-                        };
-                        continue;
+                        }
                     }
-                    _ => return Err(()),
-                },
+
+                    bail!("Unable to get updates from remote");
+                }
             }
 
             versions.save(versions_list).unwrap();
@@ -132,14 +142,14 @@ impl RemoteManager {
 
     // Todo: fix conflicts between error types (reduce amount of unwraps)
     // Todo: Files do not move if folder name was changed
-    // Todo: Just rename file / folder if everthing else is ok 
+    // Todo: Just rename file / folder if everthing else is ok
     fn sync_dir(
         &self,
         id: String,
         dir_path: PathBuf,
         drive: &MutexGuard<Client>,
         local_versions: &mut HashMap<String, VersionLog>,
-    ) -> Result<(), DriveClientError> {
+    ) -> Result<()> {
         let dir_info = drive.get_file_info(&id)?;
         let local_dir_info = local_versions.get(&id);
 
@@ -171,11 +181,12 @@ impl RemoteManager {
                     local_versions.remove(&file_id);
                     if let Some(local) = local {
                         let removed_path = Path::new(&local.path);
+
                         if removed_path.exists() {
                             if is_folder {
-                                fs::remove_dir_all(&removed_path).unwrap();
+                                fs::remove_dir_all(&removed_path)?;
                             } else {
-                                fs::remove_file(&removed_path).unwrap();
+                                fs::remove_file(&removed_path)?;
                             }
                         }
                     }
@@ -185,19 +196,19 @@ impl RemoteManager {
                 if is_folder {
                     let subdir = dir_path.join(file.name.as_ref().unwrap());
                     if !subdir.exists() {
-                        fs::create_dir(subdir.clone()).unwrap();
+                        fs::create_dir(subdir.clone())?;
                     }
                     self.sync_dir(file.clone().id.unwrap(), subdir, drive, local_versions)?;
                 } else {
                     if local.is_some() {
                         let old_path = Path::new(&local.unwrap().path);
                         if old_path.exists() {
-                            fs::remove_file(old_path).unwrap();
+                            fs::remove_file(old_path)?;
                         }
                     }
 
                     let filepath = dir_path.join(&file.name.clone().unwrap());
-                    self.save_file(drive, &file, &filepath).unwrap();
+                    self.save_file(drive, &file, filepath)?;
                 }
 
                 if local.is_some() {
@@ -221,32 +232,31 @@ impl RemoteManager {
         Ok(())
     }
 
-    fn save_file(
-        &self,
-        drive: &MutexGuard<Client>,
-        file: &File,
-        filepath: &PathBuf,
-    ) -> Result<(), ()> {
+    fn save_file(&self, drive: &MutexGuard<Client>, file: &File, filepath: PathBuf) -> Result<()> {
         let contents = drive.download_file(file.id.as_ref().unwrap()).unwrap();
 
-        if filepath.exists() {
-            // Todo: maybe some better error handling for this?
-            fs::remove_file(filepath).unwrap();
-        }
+        match fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&filepath)
+        {
+            Ok(mut file) => {
+                if let Err(e) = file.write(&contents) {
+                    bail!(
+                        "Unable write to file. (File: '{}')\nDetails: {}",
+                        filepath.into_os_string().into_string().unwrap(),
+                        e
+                    )
+                }
 
-        let mut file = fs::File::create(filepath).unwrap();
-
-        match file.write(&contents) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                eprintln!(
-                    "[Error] File '{}' can't be saved.\nError: {}",
-                    filepath.to_str().unwrap(),
-                    e
-                );
-                fs::remove_file(filepath).unwrap();
-                return Err(());
+                Ok(())
             }
+            Err(e) => bail!(
+                "Unable access file. (File: '{}')\nDetails: {}",
+                filepath.into_os_string().into_string().unwrap(),
+                e
+            ),
         }
     }
 }

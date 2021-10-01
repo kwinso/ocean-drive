@@ -10,8 +10,8 @@ mod readline;
 mod redirect_listener;
 mod parse_url;
 extern crate clap;
-use clap::{App, SubCommand, ArgMatches};
-use std::process::exit;
+use clap::{App, SubCommand};
+use anyhow::{Result};
 
 // TODO: 
 //  - Create dir in Drive if needed
@@ -23,23 +23,8 @@ use std::process::exit;
 //  - Add icon to tray (idk what would be there, but do it) 
 //  - Add functionality to get out of some errors (like with not existing authorization and etc.)
 //  - Synced folder can be either the whole drive or folder in the root of the drive
-//  - Multiple drives synchronization, namespacing for configurations (with subfolders in config folder)
 
-fn parse_args<'a>(matches: ArgMatches<'a>) -> Result<(), ()> {
-    if let Some(_) = matches.subcommand_matches("setup") {
-        setup::run()?;
-    }
-    if let Some(_) = matches.subcommand_matches("run") {
-        sync::run()?;
-    }
-    if let Some(_) = matches.subcommand_matches("auth") {
-        auth::authorize()?;
-    }
-
-    Ok(())
-}
-
-fn main() {
+fn main() -> Result<()> {
     let matches = App::new("Ocean Drive")
                 .version(env!("CARGO_PKG_VERSION"))
                 .author(env!("CARGO_PKG_AUTHORS"))
@@ -62,9 +47,15 @@ fn main() {
 
     // TODO: Add check for config file in the ~/.config folder. Create if does not exist. Or use the provided one from cli args
     
-
-    if let Err(_) = parse_args(matches) {
-        eprintln!("Stopped because of error.");
-        exit(1);
+    if let Some(_) = matches.subcommand_matches("setup") {
+        setup::run()?;
     }
+    if let Some(_) = matches.subcommand_matches("run") {
+        sync::run()?;
+    }
+    if let Some(_) = matches.subcommand_matches("auth") {
+        auth::authorize()?;
+    }
+
+    Ok(())
 }

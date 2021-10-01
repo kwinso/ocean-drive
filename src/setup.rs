@@ -4,6 +4,7 @@ use crate::{auth, files, readline, user, google_drive::Config as DriveConfig};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use anyhow::Result;
 
 // TODO: Add function for help
 // TODO:    This function should display help message about advanced configuration 
@@ -17,7 +18,7 @@ pub struct Config {
     pub drive: DriveConfig,
 }
 
-pub fn run() -> Result<(), ()> {
+pub fn run() -> Result<()> {
     auth::authorize()?;
 
     create_configuration_dir()?;
@@ -28,21 +29,18 @@ pub fn run() -> Result<(), ()> {
 }
 
 /* Creates configuration dir if not exists */
-fn create_configuration_dir() -> Result<(), ()> {
+fn create_configuration_dir() -> Result<()> {
     let home = user::get_home()?
-        .join(".config/ocean-drive")
-        .into_os_string()
-        .into_string()
-        .unwrap();
+        .join(".config/ocean-drive");
 
     if !Path::new(&home).exists() {
-        fs::create_dir(home).unwrap();
+        fs::create_dir(home)?;
     }
     Ok(())
 }
 
 /* Gathers configurations from user and saves it to a file */
-fn set_configurations() -> Result<(), ()> {
+fn set_configurations() -> Result<()> {
     let home = user::get_home()?;
     let default_local_dir = &home.join("ocean");
 
@@ -67,7 +65,7 @@ fn set_configurations() -> Result<(), ()> {
         },
     };
 
-    files::write_toml::<Config>(config, &home.join(".config/ocean-drive/config.toml"))?;
+    files::write_toml::<Config>(config, home.join(".config/ocean-drive/config.toml"))?;
 
     Ok(())
 }

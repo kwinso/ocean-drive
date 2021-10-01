@@ -1,7 +1,8 @@
 pub mod errors;
 pub mod types;
+use anyhow::{bail, Result};
 use bytes;
-use errors::DriveClientError;
+use errors::DriveError;
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use types::{File, FileList};
@@ -50,15 +51,11 @@ impl Client {
         self.auth = Some(s);
     }
 
-    fn get(
-        &self,
-        url: String,
-        query: &[(&str, &str)],
-    ) -> Result<reqwest::blocking::Response, DriveClientError> {
+    fn get(&self, url: String, query: &[(&str, &str)]) -> Result<reqwest::blocking::Response> {
         if let Some(auth) = &self.auth {
             match self
                 .http
-                .get(url)
+                .get(&url)
                 .bearer_auth(auth.access_token.clone())
                 .header("Content-Type", "application/json")
                 .query(query)
@@ -66,19 +63,18 @@ impl Client {
             {
                 Ok(resp) => {
                     if resp.status() == 401 {
-                        return Err(DriveClientError::Unauthorized);
+                        bail!(DriveError::Unauthorized);
                     }
                     return Ok(resp);
                 }
-                Err(_) => return Err(DriveClientError::RequestFailed),
+                Err(_) => bail!("Request failed (GET {})", url),
             }
         }
 
-        eprintln!("Unable to request data since no authorization set");
-        Err(DriveClientError::NoAuthorization)
+        bail!("Unable to request data since no authorization set");
     }
 
-    fn get_json<T>(&self, url: String, query: &[(&str, &str)]) -> Result<T, DriveClientError>
+    fn get_json<T>(&self, url: String, query: &[(&str, &str)]) -> Result<T>
     where
         T: serde::de::DeserializeOwned,
     {
@@ -86,8 +82,7 @@ impl Client {
             Ok(resp) => match resp.json::<T>() {
                 Ok(data) => Ok(data),
                 Err(e) => {
-                    eprintln!("Failed to desirialize JSON data.\nError: {}", e);
-                    return Err(DriveClientError::BadJSON);
+                    bail!("Failed to desirialize JSON data.\nError: {}", e);
                 }
             },
             Err(e) => Err(e),
@@ -99,7 +94,7 @@ impl Client {
         refresh: bool,
         auth_code: Option<String>,
         refresh_token: Option<String>,
-    ) -> Result<Session, DriveClientError> {
+    ) -> Result<Session> {
         let mut params: Vec<(&str, String)> = vec![
             ("client_id", self.client_id.clone()),
             ("client_secret", self.client_secret.clone()),
@@ -122,31 +117,30 @@ impl Client {
         {
             Ok(resp) => {
                 if resp.status() == 401 {
-                    return Err(DriveClientError::Unauthorized);
+                    bail!(DriveError::Unauthorized);
                 }
+
                 match resp.json::<Session>() {
                     Ok(session) => Ok(session),
                     Err(e) => {
-                        println!("Failed to deserialize auth data.\nError: {}", e);
-                        Err(DriveClientError::BadJSON)
+                        bail!("Failed to deserialize auth data.\nDetails: {}", e);
                     }
                 }
             }
             Err(e) => {
-                eprintln!("Failed to refresh access token.\nError: {}", e);
-                Err(DriveClientError::RequestFailed)
+                bail!("Failed to refresh access token.\nDetails: {}", e);
             }
         }
     }
 
-    pub fn authorize_with_code(&mut self, code: String) -> Result<Session, DriveClientError> {
+    pub fn authorize_with_code(&mut self, code: String) -> Result<Session> {
         let session = self.get_token(false, Some(code.clone()), None)?;
         self.set_session(session.clone());
 
         Ok(session)
     }
 
-    pub fn refresh_token(&mut self) -> Result<Session, DriveClientError> {
+    pub fn refresh_token(&mut self) -> Result<Session> {
         if let Some(auth) = &self.auth {
             if let Some(refresh_token) = &auth.refresh_token {
                 let mut new_session = self.get_token(true, None, Some(refresh_token.clone()))?;
@@ -158,15 +152,10 @@ impl Client {
             }
         }
 
-        println!("[WARN] Unable to update access token since no refresh token existing");
-        Err(DriveClientError::NoAuthorization)
+        bail!("Unable to update access token since no refresh token existing");
     }
 
-    pub fn list_files(
-        &self,
-        query: Option<&str>,
-        fields: Option<&str>,
-    ) -> Result<FileList, DriveClientError> {
+    pub fn list_files(&self, query: Option<&str>, fields: Option<&str>) -> Result<FileList> {
         self.get_json::<FileList>(
             "https://www.googleapis.com/drive/v3/files".to_string(),
             &[
@@ -176,13 +165,14 @@ impl Client {
         )
     }
 
-    pub fn get_file_info(&self, id: &str) -> Result<File, DriveClientError> {
+    pub fn get_file_info(&self, id: &str) -> Result<File> {
         self.get_json(
             format!("https://www.googleapis.com/drive/v3/files/{}", id),
             &[("fields", "id, name, mimeType, parents, version")],
         )
     }
-    pub fn download_file(&self, id: &str) -> Result<bytes::Bytes, DriveClientError> {
+
+    pub fn download_file(&self, id: &str) -> Result<bytes::Bytes> {
         match self.get(
             format!("https://www.googleapis.com/drive/v3/files/{}", id),
             &[("alt", "media")],
