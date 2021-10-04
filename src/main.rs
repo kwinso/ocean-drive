@@ -1,7 +1,5 @@
-// Mods that contair all functionality for subcommands
-mod setup;
-
 mod auth;
+mod setup;
 mod sync;
 mod user;
 mod google_drive;
@@ -11,7 +9,7 @@ mod redirect_listener;
 mod parse_url;
 extern crate clap;
 use clap::{App, SubCommand};
-use anyhow::{Result};
+use anyhow::Result;
 
 // TODO: 
 //  - Create dir in Drive if needed
@@ -43,19 +41,13 @@ fn main() -> Result<()> {
                 )
                 .get_matches();
 
-    // let c = files::read_toml::<config::Config>("./config.toml");
-
+    // let c = fjiles::read_toml::<config::Config>("./config.toml");
     // TODO: Add check for config file in the ~/.config folder. Create if does not exist. Or use the provided one from cli args
     
-    if let Some(_) = matches.subcommand_matches("setup") {
-        setup::run()?;
+    match matches.subcommand_name() {
+        Some("setup") => setup::run(),
+        Some("run") => sync::run(),
+        Some("auth") => auth::authorize(),
+        _ => Ok(())
     }
-    if let Some(_) = matches.subcommand_matches("run") {
-        sync::run()?;
-    }
-    if let Some(_) = matches.subcommand_matches("auth") {
-        auth::authorize()?;
-    }
-
-    Ok(())
 }
