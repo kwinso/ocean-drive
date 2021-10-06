@@ -1,6 +1,8 @@
-use crate::{files, google_drive::Client, parse_url, readline::prompt, redirect_listener, user};
+use crate::{files, google_drive::{Client, Session}, parse_url, readline::prompt, redirect_listener, user};
 use anyhow::{bail, Result};
+use std::path::Path;
 use serde::{Deserialize, Serialize};
+use std::sync::MutexGuard;
 
 #[derive(Serialize, Deserialize)]
 pub struct Creds {
@@ -72,3 +74,15 @@ fn get_client_creds() -> (String, String) {
 
     return (client_id, client_secret);
 }
+
+
+pub fn update_for_client(client: &mut MutexGuard<Client>) -> Result<()> {
+    match client.refresh_token() {
+       Ok(s) => {
+           files::write_toml::<Session>(s, Path::new("~/.config/ocean-drive/session.toml").to_path_buf())?;
+           Ok(())
+       },
+       Err(e) => bail!("Unable to update client authorization tokens.\nTip: try to manually run `ocean-drive auth`.\nDetails: {}", e)
+    }
+}
+                     

@@ -1,6 +1,5 @@
 mod remote;
 mod versions;
-
 use crate::{
     auth::Creds,
     files,
@@ -14,8 +13,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use versions::Versions;
 /*
-    Setups two listeneres for updates: local and remote.
-    Allows to share mutable google drive client between the two.
+    Setups two daemons for updates: local and remote.
+    Each of them is responsible for either downloading files from the remote, or uploading local files to the remote
+    Each of daemons will be in the own thread. 
+    Threads will share a mutable referce to drive client, this will allow to keep the same authroziation
+    while app is running.
 */
 pub fn run() -> Result<()> {
     let conf_dir = user::get_home()?.join(".config/ocean-drive");
@@ -25,16 +27,14 @@ pub fn run() -> Result<()> {
     let config = files::read_toml::<AppConfig>(conf_file)?;
     let versions = Arc::new(Mutex::new(Versions::new(conf_dir.join("versions.json"))?));
 
-    // Todo: throw it in own thread + some error handling
-
-    let cl = Arc::clone(&client);
+    let c = Arc::clone(&client);
     let ver = Arc::clone(&versions);
     let remote_watcher = thread::spawn(move || {
-        let mut remote_manager = remote::RemoteManager::new(config, cl.clone(), ver).unwrap();
+        let mut remote_manager = remote::RemoteDaemon::new(config, c.clone(), ver).unwrap();
         remote_manager.start().unwrap();
     });
 
-    let cloned = Arc::clone(&client);
+    let c = Arc::clone(&client);
     // let local_watcher = thread::spawn(move || {});
 
     remote_watcher.join().unwrap();
@@ -53,7 +53,7 @@ fn setup_client(conf_dir: &PathBuf) -> Result<Client> {
         Ok(s) => {
             session = s;
         }
-        Err(_) => bail!("Try to run `ocean-drive auth` to update authorization data"),
+        Err(_) => bail!("Unable to read access authorization data.\nTip: Try to run `ocean-drive auth` to update authorization data"),
     };
 
     let mut client = Client::new(
@@ -64,7 +64,6 @@ fn setup_client(conf_dir: &PathBuf) -> Result<Client> {
 
     client.set_session(session.clone());
 
-    // ToDo: Ask for authorization if unable to get new token
     if session.refresh_token.is_some() {
         match client.refresh_token() {
             Ok(new_session) => {
@@ -72,10 +71,10 @@ fn setup_client(conf_dir: &PathBuf) -> Result<Client> {
 
                 println!("Authorization for client is updated.");
             }
-            Err(_) => bail!("Unable to update client refresh token"),
+            Err(_) => eprintln!("[WARN] App was unable to update Google API Access Token.\nTip: Try to manually authorize using `ocean-drive auth`."),
         };
     } else {
-        println!("!! No refresh token for client is provided !!\nPerhaps, it's good to run `ocean-drive auth` to updates your tokens.");
+        println!("[WARN] No refresh token for client is provided!\nPerhaps, it's good to run `ocean-drive auth` to updates your tokens.");
     }
 
     Ok(client)

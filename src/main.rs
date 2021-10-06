@@ -23,7 +23,7 @@ use anyhow::Result;
 //  - Synced folder can be either the whole drive or folder in the root of the drive
 
 fn main() -> Result<()> {
-    let matches = App::new("Ocean Drive")
+    let cmd = App::new("Ocean Drive")
                 .version(env!("CARGO_PKG_VERSION"))
                 .author(env!("CARGO_PKG_AUTHORS"))
                 .about(env!("CARGO_PKG_DESCRIPTION"))
@@ -44,7 +44,7 @@ fn main() -> Result<()> {
     // let c = fjiles::read_toml::<config::Config>("./config.toml");
     // TODO: Add check for config file in the ~/.config folder. Create if does not exist. Or use the provided one from cli args
     
-    match matches.subcommand_name() {
+    match cmd.subcommand_name() {
         Some("setup") => setup::run(),
         Some("run") => sync::run(),
         Some("auth") => auth::authorize(),

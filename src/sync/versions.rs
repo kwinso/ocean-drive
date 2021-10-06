@@ -15,8 +15,7 @@ pub struct VersionLog {
     pub parent_id: String,
     pub version: String,
     pub path: String,
-    // pub local_hash: String,
-    // pub remote_hash: String,
+    pub md5: Option<String>, 
 }
 
 pub type VersionsList = std::collections::HashMap<String, VersionLog>;

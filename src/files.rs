@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use std::{fs, io::prelude::*, path::PathBuf};
 use toml;
 
-// Todo: use OpenOptions to open files (more convinient)
+
 pub fn read_toml<'a, T>(path: PathBuf) -> Result<T>
 where
     T: serde::de::DeserializeOwned,

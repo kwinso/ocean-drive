@@ -1,8 +1,9 @@
 /*
-    Handles all the logic about handling updates from the remote drive, uploading and downloading files
+    Contains all the logic about handling updates from the remote drive, uploading and downloading files
     from remote to local
 */
 use crate::google_drive::{errors::DriveError, types::File, Client};
+use crate::auth;
 use crate::setup::Config;
 use crate::sync::versions::VersionLog;
 use crate::sync::Versions;
@@ -18,21 +19,27 @@ use std::{
 };
 use std::{io::Write, sync::MutexGuard};
 
-pub struct RemoteManager {
+pub struct RemoteDaemon {
     client_ref: Arc<Mutex<Client>>,
     config: Config,
     remote_dir_id: String,
     versions: Arc<Mutex<Versions>>,
 }
 
-// Todo: Compare with versions ffile and remove deletes files not to leave trash
-impl RemoteManager {
+impl RemoteDaemon {
     pub fn new(
         config: Config,
         client_ref: Arc<Mutex<Client>>,
         versions: Arc<Mutex<Versions>>,
     ) -> Result<Self> {
-        let client = client_ref.lock().unwrap();
+        // Lock the client for all other threads
+        let mut client: MutexGuard<Client>;
+        loop {
+            if let Ok(locked) = client_ref.try_lock() {
+                client = locked;
+                break;
+            }
+        }
 
         match client.list_files(
             Some(&format!(
@@ -64,13 +71,16 @@ impl RemoteManager {
                 if let Some(err) = e.downcast_ref::<DriveError>() {
                     match err {
                         DriveError::Unauthorized => {
-                            // todo: re-authorize
+                            match auth::update_for_client(&mut client) {
+                                Ok(_) => println!("Info: Authorization tokens for client are updated"),
+                                Err(e) => bail!(e),
+                            }
                         }
                     }
                 }
 
                 bail!(
-                    "Fail! Unable to instantiate Remote Files Manager.\nDetails: {}",
+                    "Fail! Unable to instantiate Remote Files Daemon.\nDetails: {}",
                     e
                 );
             }
@@ -100,7 +110,7 @@ impl RemoteManager {
             let mut client = self.lock_client();
 
             match self.sync_dir(
-                self.remote_dir_id.clone(),
+                &self.remote_dir_id,
                 PathBuf::from_str(&self.config.local_dir).unwrap(),
                 &client,
                 &mut versions_list,
@@ -110,24 +120,19 @@ impl RemoteManager {
                     if let Ok(err) = e.downcast::<DriveError>() {
                         match err {
                             DriveError::Unauthorized => {
-                                match client.refresh_token() {
-                                    Err(_) => {
-                                        bail!("Failed to update authorization data for app.\nPlease run `ocean-drive auth` to renew authorization data and then start the program again.");
-                                    }
+                                match auth::update_for_client(&mut client) {
                                     Ok(_) => {
-                                        // Todo: Add counter for attempts
-                                        println!(
-                                            "Refresh token is updated. Trying to fetch files again"
-                                        );
+                                        println!("Info: Authoziation tokens are updated.");
                                         drop(client);
+                                        continue;
                                     }
-                                };
-                                continue;
+                                    Err(e) => bail!(e),
+                                }
                             }
                         }
                     }
 
-                    bail!("Unable to get updates from remote");
+                    bail!("Unable to get updates from remote.");
                 }
             }
 
@@ -140,29 +145,26 @@ impl RemoteManager {
         }
     }
 
-    // Todo: fix conflicts between error types (reduce amount of unwraps)
-    // Todo: Files do not move if folder name was changed
-    // Todo: Just rename file / folder if everthing else is ok
     fn sync_dir(
         &self,
-        id: String,
+        id: &String,
         dir_path: PathBuf,
         drive: &MutexGuard<Client>,
         local_versions: &mut HashMap<String, VersionLog>,
     ) -> Result<()> {
         let dir_info = drive.get_file_info(&id)?;
-        let local_dir_info = local_versions.get(&id);
+        let local_dir_info = local_versions.get(id);
 
         // if the dir wasnt updated, then there's no need to even check this dir
-        if local_dir_info.is_some() && dir_info.version.unwrap() == local_dir_info.unwrap().version
-        {
+        if local_dir_info.is_some() && local_dir_info.unwrap().version == dir_info.version.unwrap() {
             return Ok(());
         }
 
         let dir = drive.list_files(
             Some(&format!("'{}' in parents", &id)),
-            Some("files(id, name, trashed, mimeType, parents, version)"),
+            Some("files(id, md5Checksum, name, trashed, mimeType, parents, version)"),
         )?;
+        
         // Files is a haspmap with key of file id and value is file
         let mut files: HashMap<String, File> = HashMap::new();
         dir.files.iter().for_each(|f| {
@@ -175,62 +177,92 @@ impl RemoteManager {
             let v = local_versions.clone();
             let local = v.get(&file_id);
 
+            if local.is_some() {
+                let local_path = Path::new(&local.unwrap().path);
+
+                if !local_path.starts_with(&dir_path) {
+                    let updated_path = dir_path.join(file.name.as_ref().unwrap());
+                    let mut updated_version = local.unwrap().clone(); 
+                    updated_version.path = updated_path.into_os_string().into_string().unwrap();
+                    local_versions.remove(&file_id);
+                    local_versions.insert(file_id.clone(), updated_version);
+                }
+            }
+            
             // This file is new or changed
             if local.is_none() || &local.unwrap().version != file.version.as_ref().unwrap() {
+                let name = file.name.as_ref().unwrap();
+                let file_path = dir_path.join(name).to_path_buf();
+                let file_path = file_path.to_str().unwrap();
+
                 if file.trashed.unwrap() {
                     local_versions.remove(&file_id);
-                    if let Some(local) = local {
-                        let removed_path = Path::new(&local.path);
+                    self.remove_from_fs(&local)?;
+                    continue;
+                }
 
-                        if removed_path.exists() {
-                            if is_folder {
-                                fs::remove_dir_all(&removed_path)?;
-                            } else {
-                                fs::remove_file(&removed_path)?;
+                // If changed we need to update existing one. We need to remove existing for it
+                if is_folder {
+
+                    // Check directory name was changed, then just rename in on the file system 
+                    if let Some(local) = local {
+                        if &local.path != file_path {
+                            match fs::rename(&local.path, file_path) {
+                                Err(e) => bail!(e),
+                                Ok(_) => {}
                             }
                         }
                     }
-                    continue;
-                }
-                // If changed we need to update existing one. We need to remove existing for it
-                if is_folder {
-                    let subdir = dir_path.join(file.name.as_ref().unwrap());
+                    
+                    // Generate a path for a subdirectory
+                    let subdir = dir_path.join(name);
                     if !subdir.exists() {
                         fs::create_dir(subdir.clone())?;
                     }
-                    self.sync_dir(file.clone().id.unwrap(), subdir, drive, local_versions)?;
+                   
+                    // We go recursively for every file in the subdir
+                    self.sync_dir(&file_id, subdir, drive, local_versions)?;
                 } else {
-                    if local.is_some() {
-                        let old_path = Path::new(&local.unwrap().path);
-                        if old_path.exists() {
-                            fs::remove_file(old_path)?;
-                        }
-                    }
+                     
+                    // Check if it's a new file and download it
+                    // Also re-download if we the file data has changed
+                    if local.is_none() || local.unwrap().md5 != file.md5 {
+                        let filepath = dir_path.join(&name);
+                        self.save_file(drive, &file, filepath)?;
+                    } 
 
-                    let filepath = dir_path.join(&file.name.clone().unwrap());
-                    self.save_file(drive, &file, filepath)?;
+                    // If the file is present, we check if it's was renamed 
+                    if let Some(local) = local {
+                        if &local.path != file_path { 
+                            fs::rename(&local.path, &file_path)?; 
+                        }
+                    } 
+
                 }
 
+                // If local version is present, we need to remove it before updating
                 if local.is_some() {
                     local_versions.remove(&file_id);
                 }
 
-                let newest_version = VersionLog {
+                let latest = VersionLog {
                     is_folder,
+                    md5: file.md5,
                     parent_id: id.clone(),
                     path: dir_path
-                        .join(file.name.as_ref().unwrap())
+                        .join(name)
                         .into_os_string()
                         .into_string()
                         .unwrap(),
                     version: file.version.as_ref().unwrap().to_string(),
                 };
-                local_versions.insert(file_id.clone(), newest_version.clone());
+                local_versions.insert(file_id, latest.clone());
             }
         }
 
         Ok(())
     }
+
 
     fn save_file(&self, drive: &MutexGuard<Client>, file: &File, filepath: PathBuf) -> Result<()> {
         let contents = drive.download_file(file.id.as_ref().unwrap()).unwrap();
@@ -259,4 +291,23 @@ impl RemoteManager {
             ),
         }
     }
+
+    
+    /* Removes a file from a local root, the opposite of save_file fn */
+    fn remove_from_fs(&self, local: &Option<&VersionLog>) -> Result<()> {
+        if let Some(local) = local {
+            let removed_path = Path::new(&local.path);
+
+            if removed_path.exists() {
+                if local.is_folder {
+                    fs::remove_dir_all(&removed_path)?;
+                } else {
+                    fs::remove_file(&removed_path)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
 }
