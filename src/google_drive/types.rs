@@ -15,5 +15,5 @@ pub struct File {
     #[serde(rename = "md5Checksum")]
     pub md5: Option<String>,
     pub version: Option<String>,
-    pub parents: Option<Vec<String>>
+    pub parents: Option<Vec<String>>,
 }

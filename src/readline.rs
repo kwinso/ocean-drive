@@ -13,8 +13,10 @@ pub fn prompt(prompt: &str) -> Option<String> {
         return None;
     }
 
-    if ans.trim().is_empty() { return None; }
-   
+    if ans.trim().is_empty() {
+        return None;
+    }
+
     Some(ans.trim().to_string())
 }
 
@@ -32,7 +34,7 @@ pub fn binary_prompt(text: &str) -> bool {
             match ans.to_lowercase().as_str() {
                 "y" => true,
                 "n" => false,
-                _ => continue
+                _ => continue,
             };
         }
 

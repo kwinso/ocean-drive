@@ -2,15 +2,11 @@ use anyhow::{bail, Result};
 use std::{fs, io::prelude::*, path::PathBuf};
 use toml;
 
-
 pub fn read_toml<'a, T>(path: PathBuf) -> Result<T>
 where
     T: serde::de::DeserializeOwned,
 {
-    match fs::OpenOptions::new()
-        .read(true)
-        .open(&path)
-    {
+    match fs::OpenOptions::new().read(true).open(&path) {
         Ok(mut f) => {
             let mut contents = String::new();
             match f.read_to_string(&mut contents) {

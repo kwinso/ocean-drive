@@ -1,7 +1,7 @@
+use anyhow::{bail, Result};
+use regex::Regex;
 use std::collections::HashMap;
 use urlencoding;
-use regex::Regex;
-use anyhow::{Result, bail};
 
 pub fn get_query(url: String) -> Result<HashMap<String, String>> {
     let url_re = Regex::new(r".*\?").unwrap();

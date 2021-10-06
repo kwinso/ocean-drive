@@ -1,16 +1,15 @@
 /* Setup program to be ready to start */
 
-use crate::{auth, files, readline, user, google_drive::Config as DriveConfig};
+use crate::{auth, files, google_drive::Config as DriveConfig, readline, user};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use anyhow::Result;
 
 // TODO: Add function for help
-// TODO:    This function should display help message about advanced configuration 
+// TODO:    This function should display help message about advanced configuration
 // TODO:    in ~/.config/ocean-drive/config.toml file
 // ToDo: Add configuration for update timeout (how often check for updates from the remote)
-
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Config {
@@ -30,8 +29,7 @@ pub fn run() -> Result<()> {
 
 /* Creates configuration dir if not exists */
 fn create_configuration_dir() -> Result<()> {
-    let home = user::get_home()?
-        .join(".config/ocean-drive");
+    let home = user::get_home()?.join(".config/ocean-drive");
 
     if !Path::new(&home).exists() {
         fs::create_dir(home)?;
@@ -60,9 +58,7 @@ fn set_configurations() -> Result<()> {
 
     let config = Config {
         local_dir,
-        drive: DriveConfig {
-            dir: remote_dir,
-        },
+        drive: DriveConfig { dir: remote_dir },
     };
 
     files::write_toml::<Config>(config, home.join(".config/ocean-drive/config.toml"))?;

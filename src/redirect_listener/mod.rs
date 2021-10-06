@@ -1,8 +1,8 @@
+use anyhow::{bail, Result};
 use std::{
     io::prelude::*,
     net::{TcpListener, TcpStream},
 };
-use anyhow::{Result, bail};
 
 fn handle_request(mut stream: TcpStream) -> Option<String> {
     let mut buffer = [0; 1000];
@@ -40,11 +40,14 @@ pub fn get_callback() -> Result<String> {
                             return Ok(url);
                         }
                     }
-                    Err(e) => eprintln!("Error: {}", e)
+                    Err(e) => eprintln!("Error: {}", e),
                 };
             }
         }
-        Err(e) => bail!("Unable to setup listener on port 8080 for getting authorization code.\nError info: {}", e)
+        Err(e) => bail!(
+            "Unable to setup listener on port 8080 for getting authorization code.\nError info: {}",
+            e
+        ),
     }
 
     bail!("App was unable to get authorization code from Google API");
@@ -53,7 +56,7 @@ pub fn get_callback() -> Result<String> {
 fn success_res(mut stream: TcpStream) {
     let contents = include_str!("success.html");
     let response = format!("HTTP/1.1 200 OK\r\n\r\n{}", contents);
-  
+
     stream.write_all(response.as_bytes()).unwrap();
     stream.flush().unwrap();
 }
@@ -61,10 +64,10 @@ fn success_res(mut stream: TcpStream) {
 fn error_res(error_message: String, mut stream: TcpStream) {
     println!("Error: {}", error_message);
     let response = format!(
-      "HTTP/1.1 400 Bad Request\r\n\r\n400 - Bad Request - {}\n",
-      error_message
+        "HTTP/1.1 400 Bad Request\r\n\r\n400 - Bad Request - {}\n",
+        error_message
     );
-  
+
     stream.write_all(response.as_bytes()).unwrap();
     stream.flush().unwrap();
-  }
+}

@@ -15,7 +15,7 @@ use versions::Versions;
 /*
     Setups two daemons for updates: local and remote.
     Each of them is responsible for either downloading files from the remote, or uploading local files to the remote
-    Each of daemons will be in the own thread. 
+    Each of daemons will be in the own thread.
     Threads will share a mutable referce to drive client, this will allow to keep the same authroziation
     while app is running.
 */

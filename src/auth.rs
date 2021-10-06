@@ -1,9 +1,15 @@
-use crate::{files, google_drive::{Client, Session}, parse_url, readline::{prompt, binary_prompt}, redirect_listener, user};
-use webbrowser;
+use crate::{
+    files,
+    google_drive::{Client, Session},
+    parse_url,
+    readline::{binary_prompt, prompt},
+    redirect_listener, user,
+};
 use anyhow::{bail, Result};
-use std::path::Path;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::sync::MutexGuard;
+use webbrowser;
 
 #[derive(Serialize, Deserialize)]
 pub struct Creds {
@@ -53,9 +59,10 @@ pub fn authorize() -> Result<()> {
 fn get_auth_code(user_consent_url: String) -> Result<String> {
     // TODO: Maybe it'll be greate to automatically open the browser?
     // TODO: (of course ask the permission before!)
-    let auto_open = binary_prompt("Do you want to automatically open authorization url in your browser?");
+    let auto_open =
+        binary_prompt("Do you want to automatically open authorization url in your browser?");
     let mut successfully_opened = false;
-   
+
     if auto_open {
         println!("Openning URL...");
         if webbrowser::open(&user_consent_url).is_err() {
@@ -91,7 +98,6 @@ fn get_client_creds() -> (String, String) {
     return (client_id, client_secret);
 }
 
-
 pub fn update_for_shared_client(client: &mut MutexGuard<Client>) -> Result<()> {
     match client.refresh_token() {
        Ok(s) => {
@@ -101,4 +107,3 @@ pub fn update_for_shared_client(client: &mut MutexGuard<Client>) -> Result<()> {
        Err(e) => bail!("Unable to update client authorization tokens.\nTip: try to manually run `ocean-drive auth`.\nDetails: {}", e)
     }
 }
-                     

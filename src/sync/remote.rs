@@ -2,8 +2,8 @@
     Contains all the logic about handling updates from the remote drive, uploading and downloading files
     from remote to local
 */
-use crate::google_drive::{errors::DriveError, types::File, Client};
 use crate::auth;
+use crate::google_drive::{errors::DriveError, types::File, Client};
 use crate::setup::Config;
 use crate::sync::versions::VersionLog;
 use crate::sync::Versions;
@@ -72,7 +72,9 @@ impl RemoteDaemon {
                     match err {
                         DriveError::Unauthorized => {
                             match auth::update_for_shared_client(&mut client) {
-                                Ok(_) => println!("Info: Authorization tokens for client are updated"),
+                                Ok(_) => {
+                                    println!("Info: Authorization tokens for client are updated")
+                                }
                                 Err(e) => bail!(e),
                             }
                         }
@@ -156,7 +158,8 @@ impl RemoteDaemon {
         let local_dir_info = local_versions.get(id);
 
         // if the dir wasnt updated, then there's no need to even check this dir
-        if local_dir_info.is_some() && local_dir_info.unwrap().version == dir_info.version.unwrap() {
+        if local_dir_info.is_some() && local_dir_info.unwrap().version == dir_info.version.unwrap()
+        {
             return Ok(());
         }
 
@@ -164,7 +167,7 @@ impl RemoteDaemon {
             Some(&format!("'{}' in parents", &id)),
             Some("files(id, md5Checksum, name, trashed, mimeType, parents, version)"),
         )?;
-        
+
         // Files is a haspmap with key of file id and value is file
         let mut files: HashMap<String, File> = HashMap::new();
         dir.files.iter().for_each(|f| {
@@ -182,13 +185,13 @@ impl RemoteDaemon {
 
                 if !local_path.starts_with(&dir_path) {
                     let updated_path = dir_path.join(file.name.as_ref().unwrap());
-                    let mut updated_version = local.unwrap().clone(); 
+                    let mut updated_version = local.unwrap().clone();
                     updated_version.path = updated_path.into_os_string().into_string().unwrap();
                     local_versions.remove(&file_id);
                     local_versions.insert(file_id.clone(), updated_version);
                 }
             }
-            
+
             // This file is new or changed
             if local.is_none() || &local.unwrap().version != file.version.as_ref().unwrap() {
                 let name = file.name.as_ref().unwrap();
@@ -203,8 +206,7 @@ impl RemoteDaemon {
 
                 // If changed we need to update existing one. We need to remove existing for it
                 if is_folder {
-
-                    // Check directory name was changed, then just rename in on the file system 
+                    // Check directory name was changed, then just rename in on the file system
                     if let Some(local) = local {
                         if &local.path != file_path {
                             match fs::rename(&local.path, file_path) {
@@ -213,31 +215,29 @@ impl RemoteDaemon {
                             }
                         }
                     }
-                    
+
                     // Generate a path for a subdirectory
                     let subdir = dir_path.join(name);
                     if !subdir.exists() {
                         fs::create_dir(subdir.clone())?;
                     }
-                   
+
                     // We go recursively for every file in the subdir
                     self.sync_dir(&file_id, subdir, drive, local_versions)?;
                 } else {
-                     
                     // Check if it's a new file and download it
                     // Also re-download if we the file data has changed
                     if local.is_none() || local.unwrap().md5 != file.md5 {
                         let filepath = dir_path.join(&name);
                         self.save_file(drive, &file, filepath)?;
-                    } 
+                    }
 
-                    // If the file is present, we check if it's was renamed 
+                    // If the file is present, we check if it's was renamed
                     if let Some(local) = local {
-                        if &local.path != file_path { 
-                            fs::rename(&local.path, &file_path)?; 
+                        if &local.path != file_path {
+                            fs::rename(&local.path, &file_path)?;
                         }
-                    } 
-
+                    }
                 }
 
                 // If local version is present, we need to remove it before updating
@@ -249,11 +249,7 @@ impl RemoteDaemon {
                     is_folder,
                     md5: file.md5,
                     parent_id: id.clone(),
-                    path: dir_path
-                        .join(name)
-                        .into_os_string()
-                        .into_string()
-                        .unwrap(),
+                    path: dir_path.join(name).into_os_string().into_string().unwrap(),
                     version: file.version.as_ref().unwrap().to_string(),
                 };
                 local_versions.insert(file_id, latest.clone());
@@ -262,7 +258,6 @@ impl RemoteDaemon {
 
         Ok(())
     }
-
 
     fn save_file(&self, drive: &MutexGuard<Client>, file: &File, filepath: PathBuf) -> Result<()> {
         let contents = drive.download_file(file.id.as_ref().unwrap()).unwrap();
@@ -292,7 +287,6 @@ impl RemoteDaemon {
         }
     }
 
-    
     /* Removes a file from a local root, the opposite of save_file fn */
     fn remove_from_fs(&self, local: &Option<&VersionLog>) -> Result<()> {
         if let Some(local) = local {
@@ -309,5 +303,4 @@ impl RemoteDaemon {
 
         Ok(())
     }
-
 }
