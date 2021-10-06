@@ -71,7 +71,7 @@ impl RemoteDaemon {
                 if let Some(err) = e.downcast_ref::<DriveError>() {
                     match err {
                         DriveError::Unauthorized => {
-                            match auth::update_for_client(&mut client) {
+                            match auth::update_for_shared_client(&mut client) {
                                 Ok(_) => println!("Info: Authorization tokens for client are updated"),
                                 Err(e) => bail!(e),
                             }
@@ -120,7 +120,7 @@ impl RemoteDaemon {
                     if let Ok(err) = e.downcast::<DriveError>() {
                         match err {
                             DriveError::Unauthorized => {
-                                match auth::update_for_client(&mut client) {
+                                match auth::update_for_shared_client(&mut client) {
                                     Ok(_) => {
                                         println!("Info: Authoziation tokens are updated.");
                                         drop(client);

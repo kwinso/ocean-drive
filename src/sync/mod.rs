@@ -69,12 +69,12 @@ fn setup_client(conf_dir: &PathBuf) -> Result<Client> {
             Ok(new_session) => {
                 files::write_toml(new_session, session_file)?;
 
-                println!("Authorization for client is updated.");
+                println!("Info: Authorization for client is updated.");
             }
-            Err(_) => eprintln!("[WARN] App was unable to update Google API Access Token.\nTip: Try to manually authorize using `ocean-drive auth`."),
+            Err(_) => eprintln!("Warn: App was unable to update Google API Access Token.\nTip: Try to manually authorize using `ocean-drive auth`."),
         };
     } else {
-        println!("[WARN] No refresh token for client is provided!\nPerhaps, it's good to run `ocean-drive auth` to updates your tokens.");
+        println!("Warn: No refresh token for client is provided!\nPerhaps, it's good to run `ocean-drive auth` to updates your tokens.");
     }
 
     Ok(client)

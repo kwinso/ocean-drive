@@ -1,4 +1,5 @@
-use crate::{files, google_drive::{Client, Session}, parse_url, readline::prompt, redirect_listener, user};
+use crate::{files, google_drive::{Client, Session}, parse_url, readline::{prompt, binary_prompt}, redirect_listener, user};
+use webbrowser;
 use anyhow::{bail, Result};
 use std::path::Path;
 use serde::{Deserialize, Serialize};
@@ -52,10 +53,23 @@ pub fn authorize() -> Result<()> {
 fn get_auth_code(user_consent_url: String) -> Result<String> {
     // TODO: Maybe it'll be greate to automatically open the browser?
     // TODO: (of course ask the permission before!)
-    println!(
-        "\nPlease, authorize application via this link:\n  {}\n",
-        user_consent_url
-    );
+    let auto_open = binary_prompt("Do you want to automatically open authorization url in your browser?");
+    let mut successfully_opened = false;
+   
+    if auto_open {
+        println!("Openning URL...");
+        if webbrowser::open(&user_consent_url).is_err() {
+            println!("Warn: Unable to open URL in web browser. Please, open in manually.");
+        }
+        successfully_opened = true;
+    }
+
+    if !successfully_opened {
+        println!(
+            "\nPlease, authorize application via this link:\n  {}\n",
+            user_consent_url
+        );
+    }
 
     let url = redirect_listener::get_callback()?;
     let query = parse_url::get_query(url)?;
@@ -69,14 +83,16 @@ fn get_auth_code(user_consent_url: String) -> Result<String> {
 }
 
 fn get_client_creds() -> (String, String) {
-    let client_id = prompt("Google OAuth client id").expect("Unable to read this text");
-    let client_secret = prompt("Google OAuth client secret").expect("Unable to read this text");
+    let empty = String::from("");
+
+    let client_id = prompt("Google OAuth client id").unwrap_or(empty.clone());
+    let client_secret = prompt("Google OAuth client secret").unwrap_or(empty.clone());
 
     return (client_id, client_secret);
 }
 
 
-pub fn update_for_client(client: &mut MutexGuard<Client>) -> Result<()> {
+pub fn update_for_shared_client(client: &mut MutexGuard<Client>) -> Result<()> {
     match client.refresh_token() {
        Ok(s) => {
            files::write_toml::<Session>(s, Path::new("~/.config/ocean-drive/session.toml").to_path_buf())?;
