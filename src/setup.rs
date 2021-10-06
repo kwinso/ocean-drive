@@ -9,7 +9,7 @@ use std::path::Path;
 // TODO: Add function for help
 // TODO:    This function should display help message about advanced configuration
 // TODO:    in ~/.config/ocean-drive/config.toml file
-// ToDo: Add configuration for update timeout (how often check for updates from the remote)
+// TODO: Add configuration for update timeout (how often check for updates from the remote)
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Config {

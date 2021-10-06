@@ -57,8 +57,6 @@ pub fn authorize() -> Result<()> {
 }
 
 fn get_auth_code(user_consent_url: String) -> Result<String> {
-    // TODO: Maybe it'll be greate to automatically open the browser?
-    // TODO: (of course ask the permission before!)
     let auto_open =
         binary_prompt("Do you want to automatically open authorization url in your browser?");
     let mut successfully_opened = false;
