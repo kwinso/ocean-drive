@@ -5,93 +5,42 @@
 use crate::auth;
 use crate::google_drive::{errors::DriveError, types::File, Client};
 use crate::setup::Config;
-use crate::sync::versions::VersionLog;
-use crate::sync::Versions;
+use crate::sync::versions::{VersionLog, Versions};
 use anyhow::{bail, Result};
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
-};
-use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::{Arc, Mutex, MutexGuard},
 };
-use std::{io::Write, sync::MutexGuard};
 
 pub struct RemoteDaemon {
     client_ref: Arc<Mutex<Client>>,
     config: Config,
     remote_dir_id: String,
-    versions: Arc<Mutex<Versions>>,
+    versions_ref: Arc<Mutex<Versions>>,
 }
 
 impl RemoteDaemon {
     pub fn new(
         config: Config,
         client_ref: Arc<Mutex<Client>>,
-        versions: Arc<Mutex<Versions>>,
+        versions_ref: Arc<Mutex<Versions>>,
+        remote_dir_id: String,
     ) -> Result<Self> {
-        // Lock the client for all other threads
-        let mut client: MutexGuard<Client>;
-        loop {
-            if let Ok(locked) = client_ref.try_lock() {
-                client = locked;
-                break;
-            }
-        }
-
-        match client.list_files(
-            Some(&format!(
-                "name = '{}' and mimeType = 'application/vnd.google-apps.folder'",
-                config.drive.dir
-            )),
-            Some("files(id)"),
-        ) {
-            Ok(list) => {
-                if list.files.len() == 0 {
-                    bail!(
-                        "Folder with name '{}' not found in the root of your drive.",
-                        config.drive.dir
-                    );
-                }
-                let root_dir = list.files[0].clone();
-
-                // unlock client for other threads
-                drop(client);
-
-                Ok(Self {
-                    versions,
-                    client_ref,
-                    config,
-                    remote_dir_id: root_dir.id.unwrap(),
-                })
-            }
-            Err(e) => {
-                if let Some(err) = e.downcast_ref::<DriveError>() {
-                    match err {
-                        DriveError::Unauthorized => {
-                            match auth::update_for_shared_client(&mut client) {
-                                Ok(_) => {
-                                    println!("Info: Authorization tokens for client are updated")
-                                }
-                                Err(e) => bail!(e),
-                            }
-                        }
-                    }
-                }
-
-                bail!(
-                    "Fail! Unable to instantiate Remote Files Daemon.\nDetails: {}",
-                    e
-                );
-            }
-        }
+        Ok(Self {
+            versions_ref,
+            client_ref,
+            config,
+            remote_dir_id,
+        })
     }
 
     fn lock_versions(&self) -> MutexGuard<Versions> {
         loop {
-            if let Ok(versions) = self.versions.try_lock() {
+            if let Ok(versions) = self.versions_ref.try_lock() {
                 return versions;
             }
         }
@@ -124,7 +73,7 @@ impl RemoteDaemon {
                             DriveError::Unauthorized => {
                                 match auth::update_for_shared_client(&mut client) {
                                     Ok(_) => {
-                                        println!("Info: Authoziation tokens are updated.");
+                                        println!("Info: Client authorization was updated since it was out of date.");
                                         drop(client);
                                         continue;
                                     }
