@@ -1,5 +1,4 @@
 # Ocean Drive
-Full-sync solution for Google Drive on Linux
+Dropbox-like solution for Google Drive on Linux.
 
-### Note
-Rename `creds.example.toml` to `creds.toml` for it to work
+> The app in under development for now. All usefull information will appear here with the first release.
