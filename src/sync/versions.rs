@@ -30,12 +30,11 @@ impl Versions {
         match fs::OpenOptions::new()
             .create(true)
             .write(true)
-            .truncate(true)
             .open(&path)
         {
             Ok(_) => Ok(Self { path }),
             Err(e) => {
-                bail!("Unable to access versions file, this file is required for program to work.\nError: {}", e);
+                bail!("Unable to access versions file, this file is required for program to work.\nDetails: {}", e);
             }
         }
     }
@@ -47,7 +46,7 @@ impl Versions {
                 Err(_) => Ok(VersionsList::new()),
             },
             Err(e) => {
-                bail!("Failed to read versions file. Error: {}", e);
+                bail!("Failed to read versions file. Details: {}", e);
             }
         }
     }
@@ -64,12 +63,12 @@ impl Versions {
                 match f.write_all(content.as_bytes()) {
                     Ok(_) => Ok(()),
                     Err(e) => {
-                        bail!("Failed to save versions data to file.\nError: {}", e);
+                        bail!("Failed to save versions data to file.\nDetails: {}", e);
                     }
                 }
             }
             Err(e) => {
-                bail!("Failed to access versions file.\nError: {}", e);
+                bail!("Failed to access versions file.\nDetails: {}", e);
             }
         }
     }

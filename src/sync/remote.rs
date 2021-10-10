@@ -23,6 +23,7 @@ pub struct RemoteDaemon {
     versions_ref: Arc<Mutex<Versions>>,
 }
 
+// TODO: Escape bad characters when creating file path
 impl RemoteDaemon {
     pub fn new(
         config: Config,
