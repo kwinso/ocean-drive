@@ -1,8 +1,15 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct FileList {
     pub files: Vec<File>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct FileUploadBody {
+    name: String,
+    parents: Vec<String>,
+    // TODO: Add createdAt field (will point to time when file was created LOCALLY)
 }
 
 #[derive(Deserialize, Debug, Clone)]

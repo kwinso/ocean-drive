@@ -6,7 +6,7 @@ extern crate notify;
 
 use crate::google_drive::Client;
 use crate::setup::Config;
-use crate::sync::versions::Versions;
+use crate::sync::versions::{VersionLog, VersionPtr, Versions, VersionsList};
 use anyhow::{bail, Result};
 use notify::{watcher, DebouncedEvent, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
@@ -100,7 +100,7 @@ impl LocalDaemon {
                         DebouncedEvent::Create(f) => {
                             self.create_file(f, &client, &versions)?;
                         }
-                        _ => bail!("Event isn't implemented. ({:#?})", event),
+                        _ => println!("Event isn't implemented. ({:#?})", event),
                     }
 
                     drop(versions);
@@ -119,21 +119,59 @@ impl LocalDaemon {
     ) -> Result<()> {
         // Get file info from versions file
         let v_list = versions.list()?;
-        let info = v_list
-            .iter()
-            .find(|&v| v.1.path == f.clone().into_os_string().into_string().unwrap());
+        let info = self.find_version_by_path(f, v_list);
 
         // File is completetly new
         if info.is_none() {
             // TODO:
             // if file with such name already exists on the cloud
-            //      if so, then rename current file to .local version (and pass the execution to
+            //      rename current file to .local version (and pass the execution to
             //      the next iteration)
             // else Get file mime type and then upload it to the cloud
             // then Add file to versions file
             println!("New file created");
+            let name = f.file_name();
+
+            // Something is wrong, probably it's good to ust skip this file
+            if name.is_none() {
+                return Ok(());
+            }
+
+            let name = name.unwrap().to_str().unwrap_or("");
+
+            let parent = f.parent();
+            let mut parent_info: Option<VersionPtr> = None;
+            if let Some(parent) = parent {
+                parent_info = self.find_version_by_path(parent.to_path_buf(), &v_list.clone());
+            }
+
+            let parent_id = if parent_info.is_some() {
+                parent_info.unwrap().0
+            } else {
+                &self.remote_dir_id
+            };
+
+            if let Ok(remote_file) = client.list_files(
+                Some(&format!(
+                    "name = '{}' and '{}' in parents",
+                    &name, &parent_id
+                )),
+                None,
+            ) {
+                // TODO: Make a copy of the file with time tag [hh:mm:dd dd.mm.yy] and only then
+                // upload it
+            }
         }
 
         Ok(())
+    }
+
+    fn find_version_by_path(&self, p: PathBuf, list: &VersionsList) -> Option<VersionPtr> {
+        let p = p.into_os_string().into_string();
+        let mut list = list.iter();
+        if let Ok(p) = p {
+            return list.find(|&v| v.1.path == p).clone();
+        }
+        None
     }
 }

@@ -4,4 +4,6 @@ use thiserror::Error;
 pub enum DriveError {
     #[error("Request to the API failed with status 401")]
     Unauthorized,
+    #[error("Request to the API failed with status 404")]
+    NotFound,
 }

@@ -19,6 +19,7 @@ pub struct VersionLog {
 }
 
 pub type VersionsList = std::collections::HashMap<String, VersionLog>;
+pub type VersionPtr = (&'static String, &'static VersionLog);
 
 pub struct Versions {
     path: PathBuf,

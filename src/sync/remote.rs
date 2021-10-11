@@ -78,9 +78,10 @@ impl RemoteDaemon {
                                         drop(client);
                                         continue;
                                     }
-                                    Err(e) => bail!(e),
+                                    _ => bail!(err),
                                 }
                             }
+                            _ => bail!(err),
                         }
                     }
 
@@ -104,7 +105,17 @@ impl RemoteDaemon {
         drive: &MutexGuard<Client>,
         local_versions: &mut HashMap<String, VersionLog>,
     ) -> Result<()> {
-        let dir_info = drive.get_file_info(&id)?;
+        let dir_info = drive.get_file(&id)?;
+
+        if dir_info.is_none() {
+            println!(
+                "Unable to find directory with id '{}' in your drive. Skipping it",
+                &id
+            );
+            return Ok(());
+        }
+
+        let dir_info = dir_info.unwrap();
         let local_dir_info = local_versions.get(id);
 
         // if the dir wasnt updated, then there's no need to even check this dir
@@ -115,7 +126,7 @@ impl RemoteDaemon {
 
         let dir = drive.list_files(
             Some(&format!("'{}' in parents", &id)),
-            Some("files(id, md5Checksum, name, trashed, mimeType, parents, version)"),
+            None,
         )?;
 
         // Files is a haspmap with key of file id and value is file

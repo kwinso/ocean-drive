@@ -5,7 +5,7 @@ use bytes;
 use errors::DriveError;
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
-use types::{File, FileList};
+use types::{File, FileList, FileUploadBody};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Session {
@@ -17,6 +17,7 @@ pub struct Session {
 pub struct Config {
     pub dir: String,
 }
+
 
 #[derive(Clone)]
 pub struct Client {
@@ -71,7 +72,7 @@ impl Client {
             }
         }
 
-        bail!("Unable to request data since no authorization set");
+        bail!(DriveError::Unauthorized);
     }
 
     fn get_json<T>(&self, url: String, query: &[(&str, &str)]) -> Result<T>
@@ -82,6 +83,9 @@ impl Client {
             Ok(resp) => match resp.json::<T>() {
                 Ok(data) => Ok(data),
                 Err(e) => {
+                    if resp.status() == 404 {
+                        bail!(DriveError::NotFound);
+                    }
                     bail!("Failed to desirialize JSON data.\nError: {}", e);
                 }
             },
@@ -155,22 +159,45 @@ impl Client {
         bail!("Unable to update access token since no refresh token existing");
     }
 
+    /// Performs a GET Request to /files route, listing all files that meet `query` parameter
+    /// - query is empty by default
+    /// - fields are the list of all fields that are present in `File` struct
     pub fn list_files(&self, query: Option<&str>, fields: Option<&str>) -> Result<FileList> {
         self.get_json::<FileList>(
             "https://www.googleapis.com/drive/v3/files".to_string(),
             &[
                 ("q", query.unwrap_or("")),
-                ("fields", fields.unwrap_or("*")),
+                (
+                    "fields",
+                    fields.unwrap_or(
+                        "files(id, md5Checksum, name, trashed, mimeType, parents, version)",
+                    ),
+                ),
             ],
         )
     }
 
-    pub fn get_file_info(&self, id: &str) -> Result<File> {
-        self.get_json(
+    pub fn get_file(&self, id: &str) -> Result<Option<File>> {
+        match self.get_json(
             format!("https://www.googleapis.com/drive/v3/files/{}", id),
             &[("fields", "id, name, mimeType, parents, version")],
-        )
+        ) {
+            Ok(f) => Ok(Some(f)),
+            Err(e) => {
+                if let Some(drive_err) = e.downcast_ref::<DriveError>() {
+                    return match drive_err {
+                        DriveError::NotFound => Ok(None),
+                        _ => bail!(e),
+                    };
+                }
+                bail!(e);
+            }
+        }
     }
+
+    // TODO: Implement
+    // TODO: Replace code in sync/mod.rs with this func
+    // pub fn get_file_by_name() -> Result<Option<File>> {}
 
     pub fn download_file(&self, id: &str) -> Result<bytes::Bytes> {
         match self.get(
@@ -181,4 +208,59 @@ impl Client {
             Err(e) => Err(e),
         }
     }
+
+    pub fn upload_file(
+        &self,
+        name: String,
+        mime_type: String,
+        parent_id: String,
+        contents: bytes::Bytes,
+    ) -> Result<()> {
+        if let Some(auth) = &self.auth {
+            let body = FileUploadBody {
+                name,
+                parents: vec![parent_id],
+            };
+
+            // Initialize uploading with sending first request in the sequence
+            let res = self
+                .http
+                .post("https://www.googleapis.com/upload/drive/v3/files")
+                .bearer_auth(auth.access_token.clone())
+                .header("Content-Type", "application/json")
+                .header("X-Upload-Content-Type", &mime_type)
+                .query(&[("uploadType", "resumable")])
+                .body(serde_json::to_string(&body).unwrap())
+                .send()?;
+
+            if res.status() == 401 {
+                bail!(DriveError::Unauthorized);
+            }
+
+            let upload_location = res.headers().get("Location");
+
+            if upload_location.is_none() {
+                bail!("Unable to create resumable session to upload file to the cloud");
+            }
+            let upload_location = upload_location.unwrap();
+
+            // TODO: Handle errors with JSON Deserialization
+            // Upload at once, at the end we should get all file data
+            let created = self
+                .http
+                .put(upload_location.to_str().unwrap())
+                .bearer_auth(auth.access_token.clone())
+                .body(contents)
+                .send()?
+                .json::<File>()?;
+
+            // TODO: Resume if interruped
+
+            return Ok(());
+        }
+
+        bail!(DriveError::Unauthorized);
+    }
+
+    // pub fn create_dir(name: String, parent_id: String) -> Result<File> {}
 }
