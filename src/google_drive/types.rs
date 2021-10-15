@@ -7,8 +7,8 @@ pub struct FileList {
 
 #[derive(Serialize, Debug, Clone)]
 pub struct FileUploadBody {
-    name: String,
-    parents: Vec<String>,
+    pub name: String,
+    pub parents: Vec<String>,
     // TODO: Add createdAt field (will point to time when file was created LOCALLY)
 }
 

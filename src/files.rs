@@ -1,6 +1,19 @@
 use anyhow::{bail, Result};
+use std::io::BufReader;
+use std::io::Read;
 use std::{fs, io::prelude::*, path::PathBuf};
 use toml;
+
+pub fn read_bytes(path: PathBuf) -> Result<Vec<u8>> {
+    let f = fs::OpenOptions::new().write(true).read(true).open(path)?;
+    let mut reader = BufReader::new(f);
+    let mut buffer = Vec::new();
+
+    // Read file into vector.
+    reader.read_to_end(&mut buffer)?;
+
+    Ok(buffer)
+}
 
 pub fn read_toml<'a, T>(path: PathBuf) -> Result<T>
 where

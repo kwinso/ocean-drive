@@ -5,7 +5,7 @@
 use crate::auth;
 use crate::google_drive::{errors::DriveError, types::File, Client};
 use crate::setup::Config;
-use crate::sync::versions::{VersionLog, Versions};
+use crate::sync::versions::{Version, Versions};
 use anyhow::{bail, Result};
 use std::{
     collections::HashMap,
@@ -103,7 +103,7 @@ impl RemoteDaemon {
         id: &String,
         dir_path: PathBuf,
         drive: &MutexGuard<Client>,
-        local_versions: &mut HashMap<String, VersionLog>,
+        local_versions: &mut HashMap<String, Version>,
     ) -> Result<()> {
         let dir_info = drive.get_file(&id)?;
 
@@ -206,7 +206,7 @@ impl RemoteDaemon {
                     local_versions.remove(&file_id);
                 }
 
-                let latest = VersionLog {
+                let latest = Version {
                     is_folder,
                     md5: file.md5,
                     parent_id: id.clone(),
@@ -249,7 +249,7 @@ impl RemoteDaemon {
     }
 
     /* Removes a file from a local root, the opposite of save_file fn */
-    fn remove_from_fs(&self, local: &Option<&VersionLog>) -> Result<()> {
+    fn remove_from_fs(&self, local: &Option<&Version>) -> Result<()> {
         if let Some(local) = local {
             let removed_path = Path::new(&local.path);
 

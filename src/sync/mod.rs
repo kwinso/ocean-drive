@@ -106,6 +106,7 @@ fn get_remote_dir(name: &String, drive_ref: &mut Arc<Mutex<Client>>) -> Result<F
                             Err(e) => bail!(e),
                         }
                     }
+                    _ => {}
                 }
             }
 

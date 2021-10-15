@@ -1,7 +1,6 @@
 pub mod errors;
 pub mod types;
 use anyhow::{bail, Result};
-use bytes;
 use errors::DriveError;
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize};
@@ -18,7 +17,6 @@ pub struct Config {
     pub dir: String,
 }
 
-
 #[derive(Clone)]
 pub struct Client {
     client_id: String,
@@ -28,6 +26,7 @@ pub struct Client {
     http: HttpClient,
 }
 
+// TODO: Cover all error cases with cases in errors enum
 impl Client {
     pub fn new(client_id: String, client_secret: String, redirect_uri: String) -> Self {
         Self {
@@ -80,15 +79,17 @@ impl Client {
         T: serde::de::DeserializeOwned,
     {
         match self.get(url, query) {
-            Ok(resp) => match resp.json::<T>() {
-                Ok(data) => Ok(data),
-                Err(e) => {
-                    if resp.status() == 404 {
-                        bail!(DriveError::NotFound);
-                    }
-                    bail!("Failed to desirialize JSON data.\nError: {}", e);
+            Ok(resp) => {
+                if resp.status() == 404 {
+                    bail!(DriveError::NotFound);
                 }
-            },
+                match resp.json::<T>() {
+                    Ok(data) => Ok(data),
+                    Err(e) => {
+                        bail!("Failed to desirialize JSON data.\nError: {}", e);
+                    }
+                }
+            }
             Err(e) => Err(e),
         }
     }
@@ -197,28 +198,46 @@ impl Client {
 
     // TODO: Implement
     // TODO: Replace code in sync/mod.rs with this func
-    // pub fn get_file_by_name() -> Result<Option<File>> {}
+    pub fn get_file_by_name(
+        &self,
+        name: &str,
+        parent_id: Option<&str>,
+    ) -> Result<Option<File>> {
+        let list = self.list_files(
+            Some(&format!(
+                "name = '{}' and '{}' in parents",
+                &name, &parent_id.unwrap_or("")
+            )),
+            None,
+        )?;
 
-    pub fn download_file(&self, id: &str) -> Result<bytes::Bytes> {
+        if list.files.len() == 0 {
+            return Ok(None)
+        }
+
+        Ok(Some(list.files[0].clone()))
+    }
+
+    pub fn download_file(&self, id: &str) -> Result<Vec<u8>> {
         match self.get(
             format!("https://www.googleapis.com/drive/v3/files/{}", id),
             &[("alt", "media")],
         ) {
-            Ok(resp) => Ok(resp.bytes().unwrap()),
+            Ok(resp) => Ok(resp.bytes().unwrap().into_iter().collect::<Vec<u8>>()),
             Err(e) => Err(e),
         }
     }
 
     pub fn upload_file(
         &self,
-        name: String,
-        mime_type: String,
+        name: &str,
+        mime_type: &str,
         parent_id: String,
-        contents: bytes::Bytes,
-    ) -> Result<()> {
+        contents: Vec<u8>,
+    ) -> Result<File> {
         if let Some(auth) = &self.auth {
             let body = FileUploadBody {
-                name,
+                name: name.to_string(),
                 parents: vec![parent_id],
             };
 
@@ -228,7 +247,7 @@ impl Client {
                 .post("https://www.googleapis.com/upload/drive/v3/files")
                 .bearer_auth(auth.access_token.clone())
                 .header("Content-Type", "application/json")
-                .header("X-Upload-Content-Type", &mime_type)
+                .header("X-Upload-Content-Type", mime_type)
                 .query(&[("uploadType", "resumable")])
                 .body(serde_json::to_string(&body).unwrap())
                 .send()?;
@@ -244,19 +263,20 @@ impl Client {
             }
             let upload_location = upload_location.unwrap();
 
-            // TODO: Handle errors with JSON Deserialization
             // Upload at once, at the end we should get all file data
             let created = self
                 .http
                 .put(upload_location.to_str().unwrap())
                 .bearer_auth(auth.access_token.clone())
                 .body(contents)
-                .send()?
-                .json::<File>()?;
+                .send()?;
 
-            // TODO: Resume if interruped
+            if created.status() != 200 && created.status() != 201 {
+                bail!("File wasn't uploaded successfully");
+            }
 
-            return Ok(());
+            // TODO: Handle errors with JSON Deserialization
+            return Ok(created.json::<File>()?);
         }
 
         bail!(DriveError::Unauthorized);
