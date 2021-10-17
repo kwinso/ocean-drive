@@ -42,11 +42,11 @@ pub fn run() -> Result<()> {
         let daemon = thread::spawn(move || {
             if i == 1 {
                 // Skip remote daemon for testing local one
-                // let mut d =
-                //     remote::RemoteDaemon::new(conf.clone(), drive.clone(), ver, remote_id.clone())
-                //         .unwrap();
+                let mut d =
+                    remote::RemoteDaemon::new(conf.clone(), drive.clone(), ver, remote_id.clone())
+                        .unwrap();
 
-                // d.start().unwrap();
+                d.start().unwrap();
             } else {
                 let d =
                     local::LocalDaemon::new(conf, drive.clone(), ver, remote_id.clone()).unwrap();

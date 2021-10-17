@@ -4,10 +4,8 @@
 */
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
-use crate::google_drive::types::File;
 use serde_json;
 use std::fs;
-use std::io::Bytes;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -29,7 +27,7 @@ pub struct Versions {
     path: PathBuf,
 }
 
-
+// TODO: Check if file is accessed by other thread before reading it to avoid errors
 impl Versions {
     pub fn new(path: PathBuf) -> Result<Self> {
         // Check if file accessible

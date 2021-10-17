@@ -196,8 +196,7 @@ impl Client {
         }
     }
 
-    // TODO: Implement
-    // TODO: Replace code in sync/mod.rs with this func
+    /// Kind of a shortcut to `list_files` when getting the first file with some name (if it has duplicates)
     pub fn get_file_by_name(
         &self,
         name: &str,

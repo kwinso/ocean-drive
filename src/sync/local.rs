@@ -26,7 +26,7 @@ pub struct LocalDaemon {
     client_ref: Arc<Mutex<Client>>,
     config: Config,
     local_root: PathBuf,
-    remote_dir_id: String,
+    remote_root_id: String,
     versions_ref: Arc<Mutex<Versions>>,
 }
 
@@ -64,7 +64,7 @@ impl LocalDaemon {
             client_ref,
             config,
             local_root,
-            remote_dir_id,
+            remote_root_id: remote_dir_id,
         });
     }
 
@@ -107,7 +107,23 @@ impl LocalDaemon {
 
                     match event {
                         DebouncedEvent::Create(f) => {
-                            self.create_file(f, &client, &mut v_list)?;
+                            if f.is_file() {
+                                // Get file info from versions file
+                                let info = Versions::find_item_by_path(f.clone(), v_list.clone())?;
+                                let content = files::read_bytes(f.to_path_buf())?;
+                                let hash = format!("{:x}", md5::compute(&content));
+
+                                if let Some(info) = info {
+                                    // We will update version only if hashes do not match
+                                    if info.1.md5.unwrap_or("".to_string()) != hash {
+                                        v_list.remove(&info.0);
+                                    } else {
+                                        continue;
+                                    }
+                                }
+
+                                self.upload_new_file(f, content, hash, &client, &mut v_list)?;
+                            }
                         }
                         _ => println!("Event isn't implemented. ({:#?})", event),
                     }
@@ -122,110 +138,102 @@ impl LocalDaemon {
         }
     }
 
-    fn create_file(
+    fn upload_new_file(
         &self,
         mut file: PathBuf,
+        content: Vec<u8>,
+        hash: String,
         client: &MutexGuard<Client>,
         versions: &mut VersionsList,
     ) -> Result<()> {
-        // Get file info from versions file
-        let info = Versions::find_item_by_path(file.clone(), versions.clone())?;
+        let file_name = file.file_name();
 
-        // File is completetly new
-        if info.is_none() {
-            // TODO:
-            // if file with such name already exists on the cloud
-            //      rename current file to .local version (and pass the execution to
-            //      the next iteration)
-            // else Get file mime type and then upload it to the cloud
-            // then Add file to versions file
-            let name = file.file_name();
-
-            // Something is wrong, probably it's good to ust skip this file
-            if name.is_none() || name.unwrap().to_str().is_none() {
-                return Ok(());
-            }
-
-            let mut name = name.unwrap().to_str().unwrap().to_string();
-
-            println!("Info: Spotted new file {}.", file.to_str().unwrap());
-
-            let parent_path = file.parent();
-            let mut parent_info: Option<VersionsItem> = None;
-
-            if let Some(path) = parent_path {
-                parent_info = Versions::find_item_by_path(path.to_path_buf(), versions.clone())?;
-            }
-
-            let parent_id = if parent_info.is_some() {
-                parent_info.unwrap().0
-            } else {
-                self.remote_dir_id.clone()
-            };
-
-            println!("Info: Recognized file parent id: '{}'", &parent_id);
-
-            let contents = files::read_bytes(file.to_path_buf())?;
-            let remote_file = client.get_file_by_name(&name, Some(&parent_id))?;
-
-            // Check if the file on the remote is different from what we have on local
-            if let Some(remote_file) = remote_file {
-                let local_md5 = md5::compute(&contents);
-
-                // TODO: Fix troubles with comparing md5 (it's differs in the cloud)
-                if !remote_file.trashed.unwrap()
-                    && remote_file.md5.unwrap() != format!("{:x}", local_md5).to_string()
-                {
-                    println!(
-                        "Info: Spotted file with duplicate name in the remote. Making local copy."
-                    );
-                    // We start path for the new file with it's parent
-                    let mut new_path = parent_path
-                        .clone()
-                        .unwrap_or(&Path::new("")) // It's root if it's no parent
-                        .to_path_buf()
-                        .into_os_string()
-                        .into_string()
-                        .unwrap();
-
-                    // Then we add slash because parent is a directory
-                    new_path.push_str("/");
-
-                    // New file name is built from time tag and the old name
-                    let t = chrono::Local::now();
-                    let mut new_name = t.format("[%d.%m.%y %H:%M:%S] ").to_string();
-                    new_name.push_str(&name);
-
-                    // Finish building new file path
-                    new_path.push_str(&new_name);
-
-                    // Move our file to the new path. Old path will be overwriten by remote file
-                    fs::rename(file.to_str().unwrap(), &new_path)?;
-
-                    println!("Info: Created file '{}'.", &new_path);
-
-                    // Assign function scope variables for futher actions such as uploading
-                    name = new_name;
-                    file = Path::new(&new_path).to_path_buf();
-                }
-            }
-
-            let guessed = mime_guess::from_path(&file).first_or_octet_stream();
-            let mime = guessed.essence_str();
-
-            let uploaded = client.upload_file(&name, mime, parent_id.clone(), contents)?;
-
-            // Add information about the file to the versions file so it won't be proccessed twice
-            let new_v = Version {
-                md5: uploaded.md5,
-                path: file.into_os_string().into_string().unwrap(),
-                version: uploaded.version.unwrap_or(String::from("")),
-                is_folder: false,
-                parent_id,
-            };
-
-            versions.insert(uploaded.id.unwrap(), new_v);
+        // Something is wrong, probably it's good to ust skip this file
+        if file_name.is_none() || file_name.unwrap().to_str().is_none() {
+            return Ok(());
         }
+
+        let mut file_name = file_name.unwrap().to_str().unwrap().to_string();
+
+        let parent_path = file.parent();
+        let mut parent_info: Option<VersionsItem> = None;
+
+        if let Some(p) = parent_path {
+            parent_info = Versions::find_item_by_path(p.to_path_buf(), versions.clone())?;
+        }
+
+        let parent_id = if parent_info.is_some() {
+            parent_info.unwrap().0
+        } else {
+            // Set root as the parent
+            self.remote_root_id.clone()
+        };
+
+        let remote_file = client.get_file_by_name(&file_name, Some(&parent_id))?;
+
+        // Check if the file on the remote is different from what we have on local
+        if let Some(remote_file) = remote_file {
+            if !remote_file.trashed.unwrap() {
+                if remote_file.md5.unwrap() == hash {
+                    // Since file was new and it's already in the cloud, there's nothing to do
+                    return Ok(());
+                }
+
+                // We start path for the new file with it's parent
+                let mut new_path = parent_path
+                    .clone()
+                    .unwrap_or(&Path::new("")) // It's root if it's no parent
+                    .to_path_buf()
+                    .into_os_string()
+                    .into_string()
+                    .unwrap();
+
+                // Then we add slash because parent is a directory
+                new_path.push_str("/");
+
+                // New file name is built using 2 parts: time tag and the old name
+                let t = chrono::Local::now();
+                let mut new_name = t.format("[%d.%m.%y %H:%M:%S] ").to_string();
+                new_name.push_str(&file_name);
+
+                // Finish building new file path
+                new_path.push_str(&new_name);
+
+                // Move our file to the new path. Old path will be overwriten by remote daemon
+                fs::rename(file.to_str().unwrap(), &new_path)?;
+
+                println!(
+                    "Info: Created new file to avoid duplicates '{}'.",
+                    &new_path
+                );
+
+                // Assign function scope variables for futher actions such as uploading
+                file_name = new_name;
+                file = Path::new(&new_path).to_path_buf();
+            }
+        }
+
+        let guessed = mime_guess::from_path(&file).first_or_octet_stream();
+        let mime = guessed.essence_str();
+        let file_path = file.into_os_string().into_string().unwrap();
+
+        let uploaded = client.upload_file(&file_name, mime, parent_id.clone(), content)?;
+
+        println!(
+            "Info: New file '{}' was uploaded to the cloud. (Local path: '{}')",
+            &file_name, &file_path
+        );
+
+        // Add information about the file to the versions file so it won't be proccessed twice
+        let new_v = Version {
+            md5: Some(hash),
+            path: file_path,
+            version: uploaded.version.unwrap_or(String::from("")),
+            is_folder: false,
+            parent_id,
+        };
+
+        versions.insert(uploaded.id.unwrap(), new_v);
 
         Ok(())
     }
