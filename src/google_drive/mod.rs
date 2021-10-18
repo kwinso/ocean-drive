@@ -197,21 +197,18 @@ impl Client {
     }
 
     /// Kind of a shortcut to `list_files` when getting the first file with some name (if it has duplicates)
-    pub fn get_file_by_name(
-        &self,
-        name: &str,
-        parent_id: Option<&str>,
-    ) -> Result<Option<File>> {
+    pub fn get_file_by_name(&self, name: &str, parent_id: Option<&str>) -> Result<Option<File>> {
         let list = self.list_files(
             Some(&format!(
                 "name = '{}' and '{}' in parents",
-                &name, &parent_id.unwrap_or("")
+                &name,
+                &parent_id.unwrap_or("")
             )),
             None,
         )?;
 
         if list.files.len() == 0 {
-            return Ok(None)
+            return Ok(None);
         }
 
         Ok(Some(list.files[0].clone()))
@@ -227,6 +224,35 @@ impl Client {
         }
     }
 
+    pub fn create_dir(&self, name: &str, parent_id: String) -> Result<()> {
+        if let Some(auth) = &self.auth {
+            let body = FileUploadBody {
+                name: name.to_string(),
+                parents: vec![parent_id],
+                mime_type: "application/vnd.google-apps.folder".to_string()
+            };
+
+            // Initialize uploading with sending first request in the sequence
+            let res = self
+                .http
+                .post("https://www.googleapis.com/drive/v3/files")
+                .bearer_auth(auth.access_token.clone())
+                .header("Content-Type", "application/json")
+                .body(serde_json::to_string(&body).unwrap())
+                .send()?;
+
+            if res.status() == 401 {
+                bail!(DriveError::Unauthorized);
+            }
+
+            println!("{:#?}", res);
+
+            return Ok(());
+        }
+
+        bail!(DriveError::Unauthorized);
+    }
+
     pub fn upload_file(
         &self,
         name: &str,
@@ -238,6 +264,7 @@ impl Client {
             let body = FileUploadBody {
                 name: name.to_string(),
                 parents: vec![parent_id],
+                mime_type: mime_type.to_string(),
             };
 
             // Initialize uploading with sending first request in the sequence
@@ -246,7 +273,6 @@ impl Client {
                 .post("https://www.googleapis.com/upload/drive/v3/files")
                 .bearer_auth(auth.access_token.clone())
                 .header("Content-Type", "application/json")
-                .header("X-Upload-Content-Type", mime_type)
                 .query(&[("uploadType", "resumable")])
                 .body(serde_json::to_string(&body).unwrap())
                 .send()?;

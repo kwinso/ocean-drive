@@ -53,6 +53,7 @@ impl LocalDaemon {
         versions_ref: Arc<Mutex<Versions>>,
         remote_dir_id: String,
     ) -> Result<Self> {
+        
         let local_root = Path::new(&config.local_dir).to_path_buf();
 
         if !local_root.exists() {
@@ -87,7 +88,6 @@ impl LocalDaemon {
     pub fn start(&self) -> Result<()> {
         // Create a channel to receive the events.
         let (tx, rx) = channel();
-
         // Create a watcher object, delivering debounced events.
         // The notification back-end is selected based on the platform.
         let mut watcher = watcher(tx, Duration::from_secs(10)).unwrap();
@@ -105,25 +105,9 @@ impl LocalDaemon {
                     let mut v_list = versions.list()?;
                     let client = self.lock_client();
 
-                    match event {
+                    match &event {
                         DebouncedEvent::Create(f) => {
-                            if f.is_file() {
-                                // Get file info from versions file
-                                let info = Versions::find_item_by_path(f.clone(), v_list.clone())?;
-                                let content = files::read_bytes(f.to_path_buf())?;
-                                let hash = format!("{:x}", md5::compute(&content));
-
-                                if let Some(info) = info {
-                                    // We will update version only if hashes do not match
-                                    if info.1.md5.unwrap_or("".to_string()) != hash {
-                                        v_list.remove(&info.0);
-                                    } else {
-                                        continue;
-                                    }
-                                }
-
-                                self.upload_new_file(f, content, hash, &client, &mut v_list)?;
-                            }
+                            self.handle_create(&f, &client, &mut v_list)?;
                         }
                         _ => println!("Event isn't implemented. ({:#?})", event),
                     }
@@ -138,14 +122,59 @@ impl LocalDaemon {
         }
     }
 
+    /// Function that contains all the logic for creating new file / directory
+    fn handle_create(
+        &self,
+        f: &PathBuf,
+        client: &MutexGuard<Client>,
+        v_list: &mut VersionsList,
+    ) -> Result<()> {
+        // Get file info from versions file
+        if f.is_file() {
+            self.upload_new_file(f.to_path_buf(), &client, v_list)?;
+        }
+        if f.is_dir() {
+            let paths = fs::read_dir(f)?;
+
+            for p in paths {
+                if let Ok(p) = p {
+                    let p = p.path();
+                    if p.is_file() {
+                        self.upload_new_file(f.to_path_buf(), &client, v_list)?;
+                    }
+                    if p.is_dir() {
+                        // TODO
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     fn upload_new_file(
         &self,
         mut file: PathBuf,
-        content: Vec<u8>,
-        hash: String,
         client: &MutexGuard<Client>,
-        versions: &mut VersionsList,
+        v_list: &mut VersionsList,
     ) -> Result<()> {
+        if file.is_dir() {
+            return Ok(());
+        }
+
+        let info = Versions::find_item_by_path(file.clone(), v_list.clone())?;
+        let content = files::read_bytes(file.to_path_buf())?;
+        let hash = format!("{:x}", md5::compute(&content));
+
+        if let Some(info) = info {
+            // We will update version only if hashes do not match
+            if info.1.md5.unwrap_or("".to_string()) != hash {
+                v_list.remove(&info.0);
+            } else {
+                return Ok(());
+            }
+        }
+
         let file_name = file.file_name();
 
         // Something is wrong, probably it's good to ust skip this file
@@ -159,7 +188,7 @@ impl LocalDaemon {
         let mut parent_info: Option<VersionsItem> = None;
 
         if let Some(p) = parent_path {
-            parent_info = Versions::find_item_by_path(p.to_path_buf(), versions.clone())?;
+            parent_info = Versions::find_item_by_path(p.to_path_buf(), v_list.clone())?;
         }
 
         let parent_id = if parent_info.is_some() {
@@ -233,7 +262,7 @@ impl LocalDaemon {
             parent_id,
         };
 
-        versions.insert(uploaded.id.unwrap(), new_v);
+        v_list.insert(uploaded.id.unwrap(), new_v);
 
         Ok(())
     }
