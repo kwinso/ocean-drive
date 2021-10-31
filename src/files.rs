@@ -25,7 +25,7 @@ where
             match f.read_to_string(&mut contents) {
                 Err(e) => bail!(
                     "Unable to read file contents. (File: '{}')\nDetails: {}",
-                    path.into_os_string().into_string().unwrap(),
+                    path.display(),
                     e
                 ),
                 _ => {}
@@ -36,7 +36,7 @@ where
         }
         Err(e) => bail!(
             "Failed to open file. (File: '{}')\nDetails: {}",
-            path.into_os_string().into_string().unwrap(),
+            path.display(),
             e
         ),
     }
@@ -58,7 +58,7 @@ where
             if let Err(e) = f.write_all(toml.as_bytes()) {
                 bail!(
                     "Failed to write contents to file `{}`.\nDetails: {}",
-                    path.into_os_string().into_string().unwrap(),
+                    path.display(),
                     e
                 );
             }
@@ -67,7 +67,7 @@ where
         }
         Err(e) => bail!(
             "Failed to open file. (File: '{}')\nDetails: {}",
-            path.into_os_string().into_string().unwrap(),
+            path.display(),
             e
         ),
     }

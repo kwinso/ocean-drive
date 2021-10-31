@@ -197,12 +197,12 @@ impl Client {
     }
 
     /// Kind of a shortcut to `list_files` when getting the first file with some name (if it has duplicates)
-    pub fn get_file_by_name(&self, name: &str, parent_id: Option<&str>) -> Result<Option<File>> {
+    pub fn get_file_by_name(&self, name: &str, parent_id: Option<String>) -> Result<Option<File>> {
         let list = self.list_files(
             Some(&format!(
                 "name = '{}' and '{}' in parents",
                 &name,
-                &parent_id.unwrap_or("")
+                &parent_id.unwrap_or(String::from(""))
             )),
             None,
         )?;
@@ -224,18 +224,19 @@ impl Client {
         }
     }
 
-    pub fn create_dir(&self, name: &str, parent_id: String) -> Result<()> {
+    pub fn create_dir(&self, name: &str, parent_id: String) -> Result<File> {
         if let Some(auth) = &self.auth {
             let body = FileUploadBody {
                 name: name.to_string(),
                 parents: vec![parent_id],
-                mime_type: "application/vnd.google-apps.folder".to_string()
+                mime_type: "application/vnd.google-apps.folder".to_string(),
             };
 
             // Initialize uploading with sending first request in the sequence
             let res = self
                 .http
                 .post("https://www.googleapis.com/drive/v3/files")
+                .query(&[("fields", "*")])
                 .bearer_auth(auth.access_token.clone())
                 .header("Content-Type", "application/json")
                 .body(serde_json::to_string(&body).unwrap())
@@ -245,9 +246,7 @@ impl Client {
                 bail!(DriveError::Unauthorized);
             }
 
-            println!("{:#?}", res);
-
-            return Ok(());
+            return Ok(res.json::<File>()?);
         }
 
         bail!(DriveError::Unauthorized);
@@ -273,7 +272,7 @@ impl Client {
                 .post("https://www.googleapis.com/upload/drive/v3/files")
                 .bearer_auth(auth.access_token.clone())
                 .header("Content-Type", "application/json")
-                .query(&[("uploadType", "resumable")])
+                .query(&[("uploadType", "resumable"), ("fields", "*")])
                 .body(serde_json::to_string(&body).unwrap())
                 .send()?;
 

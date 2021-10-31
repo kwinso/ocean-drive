@@ -40,15 +40,15 @@ impl Versions {
     }
 
     /// Finds item by path field.
-    pub fn find_item_by_path(p: PathBuf, l: VersionsList) -> Result<Option<VersionsItem>> {
+    pub fn find_item_by_path(p: PathBuf, l: &VersionsList) -> Option<VersionsItem> {
         let p = p.into_os_string().into_string();
         if let Ok(p) = p {
             let v = l.iter().find(|&v| v.1.path == p);
             if let Some(v) = v {
-                return Ok(Some((v.0.clone(), v.1.clone())));
+                return Some((v.0.clone(), v.1.clone()));
             }
         }
-        Ok(None)
+        None
     }
 
     pub fn list(&self) -> Result<VersionsList> {

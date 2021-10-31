@@ -124,10 +124,7 @@ impl RemoteDaemon {
             return Ok(());
         }
 
-        let dir = drive.list_files(
-            Some(&format!("'{}' in parents", &id)),
-            None,
-        )?;
+        let dir = drive.list_files(Some(&format!("'{}' in parents", &id)), None)?;
 
         // Files is a haspmap with key of file id and value is file
         let mut files: HashMap<String, File> = HashMap::new();
