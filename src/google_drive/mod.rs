@@ -327,4 +327,31 @@ impl Client {
 
         bail!(DriveError::Unauthorized);
     }
+
+    pub fn rename_file(&self, id: String, new_name: &str, parent_id: String) -> Result<File> {
+        let mut body = std::collections::HashMap::new();
+        body.insert("name", new_name);
+
+        if let Some(auth) = &self.auth {
+            let res = self
+                .http
+                .patch(format!(
+                    "https://www.googleapis.com/drive/v3/files/{}",
+                    id
+                ))
+                .header("Content-Type", "application/json")
+                .bearer_auth(auth.access_token.clone())
+                .query(&[("fields", "*"), ("addParents", &parent_id)])
+                .body(serde_json::to_string(&body).unwrap())
+                .send()?;
+
+            if res.status() == 401 {
+                bail!(DriveError::Unauthorized);
+            }
+
+            return Ok(res.json::<File>()?);
+        }
+
+        bail!(DriveError::Unauthorized);
+    }
 }

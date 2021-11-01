@@ -13,11 +13,9 @@ use crate::{
 use anyhow::{bail, Result};
 use chrono;
 use md5;
-use mime_guess;
 use notify::{watcher, DebouncedEvent, RecursiveMode, Watcher};
 use std::{
     fs,
-    process::Command,
     path::{Path, PathBuf},
     sync::{mpsc::channel, Arc, Mutex, MutexGuard},
     time::Duration,
@@ -111,6 +109,19 @@ impl LocalDaemon {
                                 self.handle_create(&f, &client, &mut v_list)?;
                             }
                         }
+                        DebouncedEvent::Rename(old, new) => {
+                            let parent = new
+                                .parent()
+                                .expect(&format!("Failed to get file parent: {:?}", new.display()));
+
+                            self.handle_rename(
+                                old.to_path_buf(),
+                                new.to_path_buf(),
+                                parent.to_path_buf(),
+                                &client,
+                                &mut v_list,
+                            )?;
+                        }
 
                         _ => println!("Event isn't implemented. ({:#?})", event),
                     }
@@ -187,7 +198,56 @@ impl LocalDaemon {
         Ok(Path::new(&new_path).to_path_buf())
     }
 
-    // Recursivelly for through every file
+    fn handle_rename(
+        &self,
+        old: PathBuf,
+        new: PathBuf,
+        parent: PathBuf,
+        client: &MutexGuard<Client>,
+        v_list: &mut VersionsList,
+    ) -> Result<()> {
+        if !parent
+            .display()
+            .to_string()
+            .starts_with(&self.local_root.display().to_string())
+        {
+            println!("Moved outside");
+            // Handle file move outside of dir
+        }
+
+        let old_info = Versions::find_item_by_path(old, v_list);
+
+        if let Some(mut info) = old_info {
+            v_list.remove(&info.0);
+            info.1.path = new.display().to_string();
+            v_list.insert(info.0.clone(), info.1);
+
+            let parent_id = if let Some(v) = Versions::find_item_by_path(parent.clone(), v_list) {
+                v.0
+            } else {
+                self.remote_root_id.clone()
+            };
+
+            println!("{:?} : {:?}", parent.display(), parent_id);
+
+            if let Some(new_name) = new.file_name() {
+                client.rename_file(
+                    info.0,
+                    new_name.to_str().unwrap_or("[non-readable name]"),
+                    parent_id,
+                )?;
+            } else {
+                bail!("Unable to get a file name for file: {:?}", new.display());
+            }
+        } else {
+            println!("File is moved, not only renamed: {:?}", new.display());
+            self.handle_create(&new, client, v_list)?;
+        }
+
+        Ok(())
+    }
+
+    // Recursivelly upload every file or create a new dir
     fn upload_dir(
         &self,
         mut dir: PathBuf,
