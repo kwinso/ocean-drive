@@ -229,7 +229,7 @@ impl Client {
             let body = FileUploadBody {
                 name: name.to_string(),
                 parents: vec![parent_id],
-                mime_type: "application/vnd.google-apps.folder".to_string(),
+                mime_type: Some("application/vnd.google-apps.folder".to_string())
             };
 
             // Initialize uploading with sending first request in the sequence
@@ -255,7 +255,6 @@ impl Client {
     pub fn upload_file(
         &self,
         name: &str,
-        mime_type: &str,
         parent_id: String,
         contents: Vec<u8>,
     ) -> Result<File> {
@@ -263,7 +262,7 @@ impl Client {
             let body = FileUploadBody {
                 name: name.to_string(),
                 parents: vec![parent_id],
-                mime_type: mime_type.to_string(),
+                mime_type: None 
             };
 
             // Initialize uploading with sending first request in the sequence
@@ -306,5 +305,26 @@ impl Client {
         bail!(DriveError::Unauthorized);
     }
 
-    // pub fn create_dir(name: String, parent_id: String) -> Result<File> {}
+    pub fn update_file(&self, id: String, contents: Vec<u8>) -> Result<File> {
+        if let Some(auth) = &self.auth {
+            let res = self
+                .http
+                .patch(format!(
+                    "https://www.googleapis.com/upload/drive/v3/files/{}",
+                    id
+                ))
+                .bearer_auth(auth.access_token.clone())
+                .query(&[("uploadType", "media")])
+                .body(contents)
+                .send()?;
+
+            if res.status() == 401 {
+                bail!(DriveError::Unauthorized);
+            }
+
+            return Ok(res.json::<File>()?);
+        }
+
+        bail!(DriveError::Unauthorized);
+    }
 }

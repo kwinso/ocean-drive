@@ -10,7 +10,7 @@ pub struct FileUploadBody {
     pub name: String,
     pub parents: Vec<String>,
     #[serde(rename = "mimeType")]
-    pub mime_type: String,
+    pub mime_type: Option<String>
     // TODO: Add createdAt field (will point to time when file was created LOCALLY)
 }
 

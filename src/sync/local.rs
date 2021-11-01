@@ -6,7 +6,7 @@ extern crate notify;
 
 use crate::{
     files,
-    google_drive::Client,
+    google_drive::{types::File, Client},
     setup::Config,
     sync::versions::{Version, Versions, VersionsList},
 };
@@ -17,6 +17,7 @@ use mime_guess;
 use notify::{watcher, DebouncedEvent, RecursiveMode, Watcher};
 use std::{
     fs,
+    process::Command,
     path::{Path, PathBuf},
     sync::{mpsc::channel, Arc, Mutex, MutexGuard},
     time::Duration,
@@ -31,10 +32,7 @@ pub struct LocalDaemon {
 }
 
 // TODO:
-// 1. file creation
-//  1. upload to the cloud
-//      1. If file already exists in the cloud, then make ".local" copy
-//  2. Create version in file
+// 1. File Writing
 // 2. File deletion
 //  1. Delete from cloud
 //      1. if local md5 in versions file != md5 for the file in the cloud, copy the file in the
@@ -89,7 +87,7 @@ impl LocalDaemon {
         let (tx, rx) = channel();
         // Create a watcher object, delivering debounced events.
         // The notification back-end is selected based on the platform.
-        let mut watcher = watcher(tx, Duration::from_secs(10)).unwrap();
+        let mut watcher = watcher(tx, Duration::from_secs(5)).unwrap();
 
         // Add a path to be watched. All files and directories at that path and
         // below will be monitored for changes.
@@ -108,6 +106,12 @@ impl LocalDaemon {
                         DebouncedEvent::Create(f) => {
                             self.handle_create(&f, &client, &mut v_list)?;
                         }
+                        DebouncedEvent::Write(f) => {
+                            if f.is_file() {
+                                self.handle_create(&f, &client, &mut v_list)?;
+                            }
+                        }
+
                         _ => println!("Event isn't implemented. ({:#?})", event),
                     }
 
@@ -128,7 +132,6 @@ impl LocalDaemon {
         client: &MutexGuard<Client>,
         v_list: &mut VersionsList,
     ) -> Result<()> {
-        println!("{:#?}", &f);
         if !f.exists() {
             return Ok(());
         }
@@ -264,11 +267,13 @@ impl LocalDaemon {
         let local = Versions::find_item_by_path(f.clone(), v_list);
         let content = files::read_bytes(f.to_path_buf())?;
         let hash = format!("{:x}", md5::compute(&content));
+        let mut is_updated = false;
 
-        if let Some(local) = local {
+        if let Some(ref local) = local {
             // Update only if file is upadated compared to the old version
-            if local.1.md5.unwrap_or("".to_string()) != hash {
+            if local.1.md5.as_ref().unwrap_or(&"".to_string()) != &hash {
                 v_list.remove(&local.0);
+                is_updated = true;
             } else {
                 return Ok(());
             }
@@ -296,23 +301,26 @@ impl LocalDaemon {
                     // Since file was new and it's already in the cloud, there's nothing to do
                     return Ok(());
                 }
+
+                if !is_updated {
+                    f = self.create_local_copy(&f)?;
+                }
             }
-
-            f = self.create_local_copy(&f)?;
         }
-        let guessed = mime_guess::from_path(&f).first_or_octet_stream();
-        let mime = guessed.essence_str();
+        let new: File;
 
-        let new = client.upload_file(
-            f.file_name()
-                .unwrap()
-                .to_str()
-                .unwrap_or("[non-readable name]"),
-            mime,
-            parent_id.clone(),
-            content,
-        )?;
-
+        if let Some(local) = local {
+            new = client.update_file(local.0, content)?;
+        } else {
+            new = client.upload_file(
+                f.file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap_or("[non-readable name]"),
+                parent_id.clone(),
+                content,
+            )?;
+        }
         // Add information about the file to the versions file so it won't be proccessed twice
         let new_v = Version {
             md5: new.md5,
