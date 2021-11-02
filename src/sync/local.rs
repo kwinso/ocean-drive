@@ -122,8 +122,8 @@ impl LocalDaemon {
                                 &mut v_list,
                             )?;
                         }
-
-                        _ => println!("Event isn't implemented. ({:#?})", event),
+                        DebouncedEvent::Remove(f) => self.handle_delete(f.to_path_buf(), &client, &mut v_list)?,
+                        _ => {}
                     }
 
                     versions.save(v_list)?;
@@ -136,7 +136,6 @@ impl LocalDaemon {
         }
     }
 
-    /// Differ files and dirs and call needed function for creation
     fn handle_create(
         &self,
         f: &PathBuf,
@@ -211,8 +210,7 @@ impl LocalDaemon {
             .to_string()
             .starts_with(&self.local_root.display().to_string())
         {
-            println!("Moved outside");
-            // Handle file move outside of dir
+            return self.handle_delete(old, client, v_list);
         }
 
         let old_info = Versions::find_item_by_path(old, v_list);
@@ -228,8 +226,6 @@ impl LocalDaemon {
                 self.remote_root_id.clone()
             };
 
-            println!("{:?} : {:?}", parent.display(), parent_id);
-
             if let Some(new_name) = new.file_name() {
                 client.rename_file(
                     info.0,
@@ -240,8 +236,23 @@ impl LocalDaemon {
                 bail!("Unable to get a file name for file: {:?}", new.display());
             }
         } else {
-            println!("File is moved, not only renamed: {:?}", new.display());
+            // If file was not on versions list earlier, this file is completly new so handle it like a
+            // new file
             self.handle_create(&new, client, v_list)?;
+        }
+
+        Ok(())
+    }
+
+    fn handle_delete(
+        &self,
+        f: PathBuf,
+        client: &MutexGuard<Client>,
+        v_list: &mut VersionsList,
+    ) -> Result<()> {
+        if let Some(v) = Versions::find_item_by_path(f, v_list) {
+            v_list.remove(&v.0);
+            client.detele_file(v.0)?;
         }
 
         Ok(())

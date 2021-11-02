@@ -229,7 +229,7 @@ impl Client {
             let body = FileUploadBody {
                 name: name.to_string(),
                 parents: vec![parent_id],
-                mime_type: Some("application/vnd.google-apps.folder".to_string())
+                mime_type: Some("application/vnd.google-apps.folder".to_string()),
             };
 
             // Initialize uploading with sending first request in the sequence
@@ -252,17 +252,12 @@ impl Client {
         bail!(DriveError::Unauthorized);
     }
 
-    pub fn upload_file(
-        &self,
-        name: &str,
-        parent_id: String,
-        contents: Vec<u8>,
-    ) -> Result<File> {
+    pub fn upload_file(&self, name: &str, parent_id: String, contents: Vec<u8>) -> Result<File> {
         if let Some(auth) = &self.auth {
             let body = FileUploadBody {
                 name: name.to_string(),
                 parents: vec![parent_id],
-                mime_type: None 
+                mime_type: None,
             };
 
             // Initialize uploading with sending first request in the sequence
@@ -328,6 +323,7 @@ impl Client {
         bail!(DriveError::Unauthorized);
     }
 
+    /// Rename also could mean moving of the file, so the parent should be specified
     pub fn rename_file(&self, id: String, new_name: &str, parent_id: String) -> Result<File> {
         let mut body = std::collections::HashMap::new();
         body.insert("name", new_name);
@@ -335,10 +331,7 @@ impl Client {
         if let Some(auth) = &self.auth {
             let res = self
                 .http
-                .patch(format!(
-                    "https://www.googleapis.com/drive/v3/files/{}",
-                    id
-                ))
+                .patch(format!("https://www.googleapis.com/drive/v3/files/{}", id))
                 .header("Content-Type", "application/json")
                 .bearer_auth(auth.access_token.clone())
                 .query(&[("fields", "*"), ("addParents", &parent_id)])
@@ -350,6 +343,24 @@ impl Client {
             }
 
             return Ok(res.json::<File>()?);
+        }
+
+        bail!(DriveError::Unauthorized);
+    }
+
+    pub fn detele_file(&self, id: String) -> Result<()> {
+        if let Some(auth) = &self.auth {
+            let res = self
+                .http
+                .delete(format!("https://www.googleapis.com/drive/v3/files/{}", id))
+                .bearer_auth(auth.access_token.clone())
+                .send()?;
+
+            if res.status() == 401 {
+                bail!(DriveError::Unauthorized);
+            }
+
+            return Ok(());
         }
 
         bail!(DriveError::Unauthorized);
