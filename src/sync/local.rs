@@ -69,7 +69,7 @@ impl LocalDaemon {
             match rx.recv() {
                 Ok(event) => {
                     let client = util::lock_ref_when_free(&self.client_ref); 
-                    let versions = util::lock_ref_when_free(&self.versions_ref);
+                    let mut versions = util::lock_ref_when_free(&self.versions_ref);
                     let mut v_list = versions.list()?;
 
                     match &event {

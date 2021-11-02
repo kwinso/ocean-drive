@@ -42,7 +42,7 @@ impl RemoteDaemon {
     pub fn start(&mut self) -> Result<()> {
         loop {
             let mut client = util::lock_ref_when_free(&self.client_ref);
-            let versions = util::lock_ref_when_free(&self.versions_ref);
+            let mut versions = util::lock_ref_when_free(&self.versions_ref);
             let mut versions_list = versions.list().unwrap();
 
             match self.sync_dir(
@@ -137,7 +137,7 @@ impl RemoteDaemon {
 
             // This file is new or changed
             if local.is_none() || &local.unwrap().version != file.version.as_ref().unwrap() {
-                let name = &file.name.as_ref().unwrap().replace("/", "\\/");
+                let name = &file.name.as_ref().unwrap();
                 let file_path = dir_path.join(name).to_path_buf();
                 let file_path = file_path.to_str().unwrap();
 
@@ -170,7 +170,6 @@ impl RemoteDaemon {
 
                     // Generate a path for a subdirectory
                     let subdir = dir_path.join(name);
-                    println!("{}", subdir.display());
                     if !subdir.exists() {
                         fs::create_dir(subdir.clone())?;
                     }

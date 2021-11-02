@@ -25,6 +25,7 @@ pub type VersionsItem = (String, Version);
 
 pub struct Versions {
     path: PathBuf,
+    is_locked: bool,
 }
 
 // TODO: Check if file is accessed by other thread before reading it to avoid errors
@@ -32,7 +33,10 @@ impl Versions {
     pub fn new(path: PathBuf) -> Result<Self> {
         // Check if file accessible
         match fs::OpenOptions::new().create(true).write(true).open(&path) {
-            Ok(_) => Ok(Self { path }),
+            Ok(_) => Ok(Self {
+                path,
+                is_locked: false,
+            }),
             Err(e) => {
                 bail!("Unable to access versions file, this file is required for program to work.\nDetails: {}", e);
             }
@@ -41,20 +45,28 @@ impl Versions {
 
     /// Finds item by path field.
     pub fn find_item_by_path(p: PathBuf, l: &VersionsList) -> Option<VersionsItem> {
-        let p = p.into_os_string().into_string();
-        if let Ok(p) = p {
-            let v = l.iter().find(|&v| v.1.path == p);
-            if let Some(v) = v {
-                return Some((v.0.clone(), v.1.clone()));
-            }
+        let p = p.display().to_string();
+        let v = l.iter().find(|&v| v.1.path == p);
+        if let Some(v) = v {
+            return Some((v.0.clone(), v.1.clone()));
         }
         None
     }
 
-    pub fn list(&self) -> Result<VersionsList> {
+    pub fn list(&mut self) -> Result<VersionsList> {
+        loop {
+            if self.is_locked {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+            break;
+        }
+
         match fs::read_to_string(&self.path) {
             Ok(content) => match serde_json::from_str::<VersionsList>(content.as_str()) {
-                Ok(r) => Ok(r),
+                Ok(r) => {
+                    self.is_locked = true;
+                    Ok(r)
+                }
                 Err(_) => Ok(VersionsList::new()),
             },
             Err(e) => {
@@ -63,7 +75,7 @@ impl Versions {
         }
     }
 
-    pub fn save(&self, versions: VersionsList) -> Result<()> {
+    pub fn save(&mut self, versions: VersionsList) -> Result<()> {
         match fs::OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -73,7 +85,10 @@ impl Versions {
             Ok(mut f) => {
                 let content = serde_json::to_string(&versions)?;
                 match f.write_all(content.as_bytes()) {
-                    Ok(_) => Ok(()),
+                    Ok(_) => {
+                        self.is_locked = false;
+                        Ok(())
+                    }
                     Err(e) => {
                         bail!("Failed to save versions data to file.\nDetails: {}", e);
                     }
