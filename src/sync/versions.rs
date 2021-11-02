@@ -63,7 +63,7 @@ impl Versions {
         }
     }
 
-    pub fn save(&self, versions: VersionsList) -> Result<()> {
+    pub fn save(&self, mut versions: VersionsList) -> Result<()> {
         match fs::OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -71,7 +71,7 @@ impl Versions {
             .open(&self.path)
         {
             Ok(mut f) => {
-                let content = serde_json::to_string(&versions).unwrap();
+                let content = serde_json::to_string(&versions);
                 match f.write_all(content.as_bytes()) {
                     Ok(_) => Ok(()),
                     Err(e) => {

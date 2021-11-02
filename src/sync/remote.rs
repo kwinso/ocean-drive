@@ -1,10 +1,10 @@
-/*
-    Contains all the logic about handling updates from the remote drive, uploading and downloading files
+/* Contains all the logic about handling updates from the remote drive, uploading and downloading files
     from remote to local
 */
 use crate::auth;
 use crate::google_drive::{errors::DriveError, types::File, Client};
 use crate::setup::Config;
+use crate::sync::util;
 use crate::sync::versions::{Version, Versions};
 use anyhow::{bail, Result};
 use std::{
@@ -39,27 +39,11 @@ impl RemoteDaemon {
         })
     }
 
-    fn lock_versions(&self) -> MutexGuard<Versions> {
-        loop {
-            if let Ok(versions) = self.versions_ref.try_lock() {
-                return versions;
-            }
-        }
-    }
-
-    fn lock_client(&self) -> MutexGuard<Client> {
-        loop {
-            if let Ok(client) = self.client_ref.try_lock() {
-                return client;
-            }
-        }
-    }
-
     pub fn start(&mut self) -> Result<()> {
         loop {
-            let versions = self.lock_versions();
+            let mut client = util::lock_ref_when_free(&self.client_ref);
+            let versions = util::lock_ref_when_free(&self.versions_ref);
             let mut versions_list = versions.list().unwrap();
-            let mut client = self.lock_client();
 
             match self.sync_dir(
                 &self.remote_dir_id,
@@ -69,23 +53,24 @@ impl RemoteDaemon {
             ) {
                 Ok(_) => {}
                 Err(e) => {
-                    if let Ok(err) = e.downcast::<DriveError>() {
+                    if let Some(err) = e.downcast_ref::<DriveError>() {
                         match err {
                             DriveError::Unauthorized => {
                                 match auth::update_for_shared_client(&mut client) {
                                     Ok(_) => {
                                         println!("Info: Client authorization was updated since it was out of date.");
                                         drop(client);
+                                        drop(versions);
                                         continue;
                                     }
-                                    _ => bail!(err),
+                                    Err(err) => bail!(err)
                                 }
                             }
-                            _ => bail!(err),
+                            _ => {} 
                         }
                     }
 
-                    bail!("Unable to get updates from remote.");
+                    bail!("Unable to get updates from remote.\nDetails: {}", e);
                 }
             }
 
@@ -109,7 +94,7 @@ impl RemoteDaemon {
 
         if dir_info.is_none() {
             println!(
-                "Unable to find directory with id '{}' in your drive. Skipping it",
+                "Warn: Unable to find directory with id '{}' in your drive. Skipping it",
                 &id
             );
             return Ok(());
@@ -168,7 +153,7 @@ impl RemoteDaemon {
                     if let Some(local) = local {
                         if &local.path != file_path {
                             match fs::rename(&local.path, file_path) {
-                                Err(e) => bail!(e),
+                                Err(e) => bail!("Failed to rename file {:?} to {:?}: {}", local.path, file_path, e),
                                 Ok(_) => {}
                             }
                         }
@@ -217,20 +202,20 @@ impl RemoteDaemon {
         Ok(())
     }
 
-    fn save_file(&self, drive: &MutexGuard<Client>, file: &File, filepath: PathBuf) -> Result<()> {
+    fn save_file(&self, drive: &MutexGuard<Client>, file: &File, file_path: PathBuf) -> Result<()> {
         let contents = drive.download_file(file.id.as_ref().unwrap()).unwrap();
 
         match fs::OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
-            .open(&filepath)
+            .open(&file_path)
         {
             Ok(mut file) => {
                 if let Err(e) = file.write(&contents) {
                     bail!(
-                        "Unable write to file. (File: '{}')\nDetails: {}",
-                        filepath.into_os_string().into_string().unwrap(),
+                        "Error writing to file {:?}: {}",
+                        file_path.display(),
                         e
                     )
                 }
@@ -238,8 +223,8 @@ impl RemoteDaemon {
                 Ok(())
             }
             Err(e) => bail!(
-                "Unable access file. (File: '{}')\nDetails: {}",
-                filepath.into_os_string().into_string().unwrap(),
+                "Unable to access file {:?}: {}",
+                file_path.into_os_string().into_string().unwrap(),
                 e
             ),
         }

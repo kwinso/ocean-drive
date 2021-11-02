@@ -20,6 +20,7 @@ use std::{
     sync::{mpsc::channel, Arc, Mutex, MutexGuard},
     time::Duration,
 };
+use crate::sync::util;
 
 pub struct LocalDaemon {
     client_ref: Arc<Mutex<Client>>,
@@ -29,19 +30,6 @@ pub struct LocalDaemon {
     versions_ref: Arc<Mutex<Versions>>,
 }
 
-// TODO:
-// 1. File Writing
-// 2. File deletion
-//  1. Delete from cloud
-//      1. if local md5 in versions file != md5 for the file in the cloud, copy the file in the
-//         cloud with .bak existion
-//  2. Remove version from file
-// 3. file renaming (also means moving)
-//  if file was moved somewhere out of local root path, do step 2). "file deletion"
-//  if file is folder => change all children for the dir in the versions file
-//  rename file in the cloud
-//  - if file was moved out of parent dir, get parent dir for new path, find in in versions file
-//  and set parents to this file
 impl LocalDaemon {
     pub fn new(
         config: Config,
@@ -64,22 +52,6 @@ impl LocalDaemon {
         });
     }
 
-    fn lock_versions(&self) -> MutexGuard<Versions> {
-        loop {
-            if let Ok(versions) = self.versions_ref.try_lock() {
-                return versions;
-            }
-        }
-    }
-
-    fn lock_client(&self) -> MutexGuard<Client> {
-        loop {
-            if let Ok(client) = self.client_ref.try_lock() {
-                return client;
-            }
-        }
-    }
-
     pub fn start(&self) -> Result<()> {
         // Create a channel to receive the events.
         let (tx, rx) = channel();
@@ -96,9 +68,9 @@ impl LocalDaemon {
         loop {
             match rx.recv() {
                 Ok(event) => {
-                    let versions = self.lock_versions();
+                    let client = util::lock_ref_when_free(&self.client_ref); 
+                    let versions = util::lock_ref_when_free(&self.versions_ref);
                     let mut v_list = versions.list()?;
-                    let client = self.lock_client();
 
                     match &event {
                         DebouncedEvent::Create(f) => {
