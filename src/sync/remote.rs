@@ -23,7 +23,6 @@ pub struct RemoteDaemon {
     versions_ref: Arc<Mutex<Versions>>,
 }
 
-// TODO: Escape bad characters when creating file path
 impl RemoteDaemon {
     pub fn new(
         config: Config,
@@ -87,10 +86,10 @@ impl RemoteDaemon {
         &self,
         id: &String,
         dir_path: PathBuf,
-        drive: &MutexGuard<Client>,
+        client: &MutexGuard<Client>,
         local_versions: &mut HashMap<String, Version>,
     ) -> Result<()> {
-        let dir_info = drive.get_file(&id)?;
+        let dir_info = client.get_file(&id)?;
 
         if dir_info.is_none() {
             println!(
@@ -109,7 +108,7 @@ impl RemoteDaemon {
             return Ok(());
         }
 
-        let dir = drive.list_files(Some(&format!("'{}' in parents", &id)), None)?;
+        let dir = client.list_files(Some(&format!("'{}' in parents", &id)), None)?;
 
         // Files is a haspmap with key of file id and value is file
         let mut files: HashMap<String, File> = HashMap::new();
@@ -138,8 +137,8 @@ impl RemoteDaemon {
             // This file is new or changed
             if local.is_none() || &local.unwrap().version != file.version.as_ref().unwrap() {
                 let name = &file.name.as_ref().unwrap();
-                let file_path = dir_path.join(name).to_path_buf();
-                let file_path = file_path.to_str().unwrap();
+                let f = dir_path.join(name).to_path_buf();
+                let file_path = f.to_str().unwrap();
 
                 if file.trashed.unwrap() {
                     local_versions.remove(&file_id);
@@ -175,13 +174,13 @@ impl RemoteDaemon {
                     }
 
                     // We go recursively for every file in the subdir
-                    self.sync_dir(&file_id, subdir, drive, local_versions)?;
+                    self.sync_dir(&file_id, subdir, client, local_versions)?;
                 } else {
                     // Check if it's a new file and download it
                     // Also re-download if we the file data has changed
                     if local.is_none() || local.unwrap().md5 != file.md5 {
                         let filepath = dir_path.join(&name);
-                        self.save_file(drive, &file, filepath)?;
+                        self.save_file(client, &file, filepath)?;
                     }
 
                     // If the file is present, we check if it's was renamed
@@ -211,8 +210,8 @@ impl RemoteDaemon {
         Ok(())
     }
 
-    fn save_file(&self, drive: &MutexGuard<Client>, file: &File, file_path: PathBuf) -> Result<()> {
-        let contents = drive.download_file(file.id.as_ref().unwrap()).unwrap();
+    fn save_file(&self, client: &MutexGuard<Client>, file: &File, file_path: PathBuf) -> Result<()> {
+        let contents = client.download_file(file.id.as_ref().unwrap()).unwrap();
 
         match fs::OpenOptions::new()
             .create(true)

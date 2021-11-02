@@ -1,6 +1,6 @@
 mod local;
-mod util;
 mod remote;
+mod util;
 mod versions;
 use crate::{
     auth::{update_for_shared_client, Creds},
@@ -35,31 +35,37 @@ pub fn run() -> Result<()> {
     let mut daemons = vec![];
     // Start 2 threads for remote and local daemons
     for i in 1..=2 {
-        let drive = Arc::clone(&client);
-        let ver = Arc::clone(&versions);
-        let conf = config.clone();
-        let remote_id = remote_dir.id.clone().unwrap();
+        let cl = Arc::clone(&client);
+        let v = Arc::clone(&versions);
+        let c = config.clone();
+        let rdir_id = remote_dir.id.clone().unwrap();
 
-        let daemon = thread::spawn(move || {
-            if i == 1 {
-                let mut d =
-                    remote::RemoteDaemon::new(conf.clone(), drive.clone(), ver, remote_id.clone())
-                        .unwrap();
+        let name = if i == 1 { "remote" } else { "local" }.to_string();
 
-                d.start().unwrap();
-            } else {
-                let d =
-                    local::LocalDaemon::new(conf, drive.clone(), ver, remote_id.clone()).unwrap();
+        let daemon = thread::Builder::new()
+            .name(name)
+            .spawn(move || -> Result<()> {
+                if i == 1 {
+                    let mut d =
+                        remote::RemoteDaemon::new(c.clone(), cl.clone(), v, rdir_id.clone())?;
 
-                d.start().unwrap();
-            }
-        });
+                    d.start()?;
+                } else {
+                    let d = local::LocalDaemon::new(c, cl.clone(), v, rdir_id.clone())?;
+
+                    d.start()?;
+                }
+
+                Ok(())
+            })?;
 
         daemons.push(daemon);
     }
 
     for d in daemons {
-        d.join().unwrap();
+        if let Err(e) = d.join() {
+            bail!("Unable to start a thread.\nDetails: {:?}", e);
+        }
     }
 
     Ok(())
