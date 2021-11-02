@@ -205,6 +205,10 @@ impl LocalDaemon {
         client: &MutexGuard<Client>,
         v_list: &mut VersionsList,
     ) -> Result<()> {
+        if !new.exists() || !parent.exists() {
+            return Ok(());
+        }
+
         if !parent
             .display()
             .to_string()
