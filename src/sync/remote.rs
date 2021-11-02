@@ -63,10 +63,10 @@ impl RemoteDaemon {
                                         drop(versions);
                                         continue;
                                     }
-                                    Err(err) => bail!(err)
+                                    Err(err) => bail!(err),
                                 }
                             }
-                            _ => {} 
+                            _ => {}
                         }
                     }
 
@@ -137,7 +137,7 @@ impl RemoteDaemon {
 
             // This file is new or changed
             if local.is_none() || &local.unwrap().version != file.version.as_ref().unwrap() {
-                let name = file.name.as_ref().unwrap();
+                let name = &file.name.as_ref().unwrap().replace("/", "\\/");
                 let file_path = dir_path.join(name).to_path_buf();
                 let file_path = file_path.to_str().unwrap();
 
@@ -147,13 +147,22 @@ impl RemoteDaemon {
                     continue;
                 }
 
+                if name.contains("/") {
+                    return Ok(());
+                }
+
                 // If changed we need to update existing one. We need to remove existing for it
                 if is_folder {
                     // Check directory name was changed, then just rename in on the file system
                     if let Some(local) = local {
                         if &local.path != file_path {
                             match fs::rename(&local.path, file_path) {
-                                Err(e) => bail!("Failed to rename file {:?} to {:?}: {}", local.path, file_path, e),
+                                Err(e) => bail!(
+                                    "Failed to rename file {:?} to {:?}: {}",
+                                    local.path,
+                                    file_path,
+                                    e
+                                ),
                                 Ok(_) => {}
                             }
                         }
@@ -161,6 +170,7 @@ impl RemoteDaemon {
 
                     // Generate a path for a subdirectory
                     let subdir = dir_path.join(name);
+                    println!("{}", subdir.display());
                     if !subdir.exists() {
                         fs::create_dir(subdir.clone())?;
                     }
@@ -213,11 +223,7 @@ impl RemoteDaemon {
         {
             Ok(mut file) => {
                 if let Err(e) = file.write(&contents) {
-                    bail!(
-                        "Error writing to file {:?}: {}",
-                        file_path.display(),
-                        e
-                    )
+                    bail!("Error writing to file {:?}: {}", file_path.display(), e)
                 }
 
                 Ok(())
