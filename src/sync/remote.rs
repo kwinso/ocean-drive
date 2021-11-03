@@ -55,7 +55,7 @@ impl RemoteDaemon {
                     if let Some(err) = e.downcast_ref::<DriveError>() {
                         match err {
                             DriveError::Unauthorized => {
-                                match auth::update_for_shared_client(&mut client) {
+                                match auth::util::update_for_shared_client(&mut client) {
                                     Ok(_) => {
                                         println!("Info: Client authorization was updated since it was out of date.");
                                         drop(client);

@@ -36,8 +36,7 @@ fn main() -> Result<()> {
     let subcmd = cmd.subcommand_name().unwrap_or("run");
 
     match subcmd {
-        "setup" => setup::run(),
-        "auth" => auth::authorize(),
+        "setup" => setup::run(cmd.subcommand().1.unwrap()),
         "run" => sync::run(),
         _ => {
             println!("Unknown subcommand. Try 'ocean-drive --help'");

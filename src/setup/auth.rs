@@ -1,23 +1,15 @@
 use crate::{
+    auth::Creds,
     files,
-    google_drive::{Client, Session},
+    google_drive::Client,
     parse_url,
     readline::{binary_prompt, prompt},
     redirect_listener, user,
 };
 use anyhow::{bail, Result};
-use serde::{Deserialize, Serialize};
-use std::path::Path;
-use std::sync::MutexGuard;
 use webbrowser;
 
-#[derive(Serialize, Deserialize)]
-pub struct Creds {
-    pub client_id: String,
-    pub client_secret: String,
-}
-
-pub fn authorize() -> Result<()> {
+pub fn run() -> Result<()> {
     let creds = get_client_creds();
     let redirect_uri = "http://localhost:8080";
     let mut drive_client = Client::new(creds.0.clone(), creds.1.clone(), redirect_uri.to_string());
@@ -94,14 +86,4 @@ fn get_client_creds() -> (String, String) {
     let client_secret = prompt("Google OAuth client secret").unwrap_or(empty.clone());
 
     return (client_id, client_secret);
-}
-
-pub fn update_for_shared_client(client: &mut MutexGuard<Client>) -> Result<()> {
-    match client.refresh_token() {
-       Ok(s) => {
-           files::write_toml::<Session>(s, Path::new("~/.config/ocean-drive/session.toml").to_path_buf())?;
-           Ok(())
-       },
-       Err(e) => bail!("Unable to update client authorization tokens.\nTip: try to manually run `ocean-drive auth`.\nDetails: {}", e)
-    }
 }

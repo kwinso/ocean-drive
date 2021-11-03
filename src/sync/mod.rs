@@ -3,7 +3,7 @@ mod remote;
 mod util;
 mod versions;
 use crate::{
-    auth::{update_for_shared_client, Creds},
+    auth::{util::update_for_shared_client, Creds},
     files,
     google_drive::{errors::DriveError, types::File, Client, Session},
     setup::Config as AppConfig,
