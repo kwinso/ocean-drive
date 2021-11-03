@@ -28,7 +28,6 @@ pub struct Versions {
     is_locked: bool,
 }
 
-// TODO: Check if file is accessed by other thread before reading it to avoid errors
 impl Versions {
     pub fn new(path: PathBuf) -> Result<Self> {
         // Check if file accessible

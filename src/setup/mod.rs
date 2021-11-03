@@ -5,6 +5,9 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+mod clap;
+
+pub use self::clap::*;
 
 // TODO: Add function for help
 // TODO:    This function should display help message about advanced configuration

@@ -14,12 +14,12 @@ use clap::{App, SubCommand};
 // TODO:
 //  - Create dir in Drive if needed
 //  - Create local dir if needed
-//  - Sync dirs
-//  - Update remote if local is changed
+//  + Sync dirs
+//  + Update remote if local is changed
 //  - vice versa
 //  - Setup for systemctl
 //  - Add icon to tray (idk what would be there, but do it)
-//  - Add functionality to get out of some errors (like with not existing authorization and etc.)
+//  + Add functionality to get out of some errors (like with not existing authorization and etc.)
 //  - Synced folder can be either the whole drive or folder in the root of the drive
 
 fn main() -> Result<()> {
@@ -27,20 +27,21 @@ fn main() -> Result<()> {
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about(env!("CARGO_PKG_DESCRIPTION"))
-        .subcommand(
-            SubCommand::with_name("setup").about("Setup all variables needed start working."),
-        )
-        .subcommand(SubCommand::with_name("run").about("Start synchronization."))
-        .subcommand(SubCommand::with_name("auth").about("Run process of app authorization."))
+        .subcommand(setup::root_subcommand())
+        .subcommand(SubCommand::with_name("run").about("[DEFAULT] Start synchronization."))
         .get_matches();
 
-    // let c = fjiles::read_toml::<config::Config>("./config.toml");
+    // let c = files::read_toml::<config::Config>("./config.toml");
     // TODO: Add check for config file in the ~/.config folder. Create if does not exist. Or use the provided one from cli args
+    let subcmd = cmd.subcommand_name().unwrap_or("run");
 
-    match cmd.subcommand_name() {
-        Some("setup") => setup::run(),
-        Some("run") => sync::run(),
-        Some("auth") => auth::authorize(),
-        _ => Ok(()),
+    match subcmd {
+        "setup" => setup::run(),
+        "auth" => auth::authorize(),
+        "run" => sync::run(),
+        _ => {
+            println!("Unknown subcommand. Try 'ocean-drive --help'");
+            Ok(())
+        }
     }
 }
