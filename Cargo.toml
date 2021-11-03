@@ -1,6 +1,6 @@
 [package]
 name = "ocean-drive"
-description = "Watch local files & sync them with Google Drive. Just like dropbox. But for Google Drive."
+description = "Dropbox-like solution for Google Drive on Linux."
 version = "0.1.0"
 authors = ["undermouse"]
 edition = "2018"
