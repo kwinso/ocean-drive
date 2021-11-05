@@ -4,12 +4,14 @@
 */
 extern crate notify;
 
-use crate::sync::util;
 use crate::{
     files,
     google_drive::{types::File, Client},
     setup::Config,
-    sync::versions::{Version, Versions, VersionsList},
+    sync::{
+        util,
+        versions::{Version, Versions, VersionsList},
+    },
 };
 use anyhow::{bail, Context, Result};
 use chrono;
@@ -76,14 +78,13 @@ impl LocalDaemon {
             let mut versions = util::lock_ref_when_free(&self.versions);
             let mut v_list = versions.list()?;
 
-            match &event {
-                DebouncedEvent::Create(f) => {
-                    self.handle_write(&f, &client, &mut v_list)?;
-                }
+            let res = match &event {
+                DebouncedEvent::Create(f) => self.handle_write(&f, &client, &mut v_list),
                 DebouncedEvent::Write(f) => {
                     if f.is_file() {
-                        self.handle_write(&f, &client, &mut v_list)?;
+                        return self.handle_write(&f, &client, &mut v_list);
                     }
+                    Ok(())
                 }
                 DebouncedEvent::Rename(old, new) => {
                     let parent = new.parent().with_context(|| {
@@ -99,12 +100,16 @@ impl LocalDaemon {
                         parent.to_path_buf(),
                         &client,
                         &mut v_list,
-                    )?;
+                    )
                 }
                 DebouncedEvent::Remove(f) => {
-                    self.handle_delete(f.to_path_buf(), &client, &mut v_list)?
+                    self.handle_delete(f.to_path_buf(), &client, &mut v_list)
                 }
-                _ => {}
+                _ => Ok(()),
+            };
+
+            if let Err(e) = res {
+                eprintln!("{}", e);
             }
 
             versions.save(v_list)?;
@@ -120,7 +125,7 @@ impl LocalDaemon {
     /// This is an util function
     fn create_local_copy(&self, f: &PathBuf) -> Result<PathBuf> {
         let parent_path = f.parent();
-        let name = self.get_file_name(f.clone())?;
+        let name = self.get_file_name(&f)?;
 
         // We start path for the new file with it's parent
         let mut new_path = parent_path
@@ -155,8 +160,7 @@ impl LocalDaemon {
 
     /// Retrieves a readable file name
     /// In other cases it'll throw an error
-    fn get_file_name(&self, f: &PathBuf) -> Result<&str> {
-        let f = f.clone();
+    fn get_file_name(&self, f: &PathBuf) -> Result<String> {
         let name = f
             .file_name()
             .with_context(|| format!("Unable to get file / directory name {:?}", f.display()))?
@@ -170,7 +174,7 @@ impl LocalDaemon {
             );
         }
 
-        Ok(name.unwrap())
+        Ok(name.unwrap().to_string())
     }
 
     /// Handles logic for new and updated files
@@ -195,9 +199,7 @@ impl LocalDaemon {
             return Ok(());
         }
 
-        println!("Warn: Failed to get file parent: {:?}", f.display());
-
-        Ok(())
+        bail!("Failed to get file parent: {:?}", f.display());
     }
 
     fn handle_rename(
@@ -237,7 +239,7 @@ impl LocalDaemon {
 
             let new_name = self.get_file_name(&new_file)?;
 
-            let updated = client.rename_file(info.0, new_name, parent_id.clone())?;
+            let updated = client.rename_file(info.0, &new_name, parent_id.clone())?;
 
             // Save the new version (then remote daemon won't update this file again since it's
             // already in sync with the cloud)
@@ -295,21 +297,15 @@ impl LocalDaemon {
             self.remote_root_id.clone()
         };
 
-        if let Some(remote) = client.get_file_by_name(name, Some(parent_id.clone()))? {
+        if let Some(remote) = client.get_file_by_name(&name, Some(parent_id.clone()))? {
             if !remote.trashed.unwrap_or(false) {
                 let v = Versions::find_item_by_path(dir.clone(), v_list);
                 // Creates a copy of the local directory if remote and local are different
                 // or if there's no version in the versions file but we still get it untrashed in
                 // the cloud
                 if v.is_none() || v.as_ref().unwrap().1.version != remote.version.unwrap() {
-                    let copy = self.create_local_copy(&dir);
-                    if let Err(e) = copy {
-                        println!("Warn: Was unable to create a local copy for the directory {:?}. This dir won't be uploaded to drive.", dir.display());
-                        println!("Cause: {}", e);
-                        return Ok(());
-                    }
-                    dir = copy.unwrap();
-
+                    dir = self.create_local_copy(&dir).with_context(
+                        || format!(" Was unable to create a local copy for the directory {:?}. This dir won't be uploaded to drive.", dir.display()))?;
                     // Remove version if exists
                     if v.is_some() {
                         v_list.remove(&v.unwrap().0);
@@ -318,7 +314,7 @@ impl LocalDaemon {
             }
         }
 
-        let new = client.create_dir(self.get_file_name(&dir)?, parent_id.clone())?;
+        let new = client.create_dir(&self.get_file_name(&dir)?, parent_id.clone())?;
 
         let v = Version {
             version: new.version.unwrap_or(String::from("1")),
@@ -342,12 +338,12 @@ impl LocalDaemon {
                 .path();
 
             if p.is_dir() {
-                if let Err(e) = self.upload_dir(p, dir.clone(), client, v_list) {
-                    println!("Failed to upload directory {:?}\nCause: {}", p.display(), e);
+                if let Err(e) = self.upload_dir(p.clone(), dir.clone(), client, v_list) {
+                    eprintln!("Failed to upload directory {:?}\nCause: {}", p.display(), e);
                 }
             } else if p.is_file() {
-                if let Err(e) = self.upload_file(p, dir.clone(), client, v_list) {
-                    println!("Failed to upload file {:?}\nCause: {}", p.display(), e);
+                if let Err(e) = self.upload_file(p.clone(), dir.clone(), client, v_list) {
+                    eprintln!("Failed to upload file {:?}\nCause: {}", p.display(), e);
                 }
             }
         }
@@ -412,7 +408,7 @@ impl LocalDaemon {
             // And the upload the new on into the cloud
             new = client.update_file(local.0, content)?;
         } else {
-            new = client.upload_file(self.get_file_name(&f)?, parent_id.clone(), content)?;
+            new = client.upload_file(&self.get_file_name(&f)?, parent_id.clone(), content)?;
         }
         // Add information about the file to the versions file so it won't be proccessed twice
         let new_v = Version {
