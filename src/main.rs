@@ -6,6 +6,7 @@ mod readline;
 mod redirect_listener;
 mod setup;
 mod sync;
+mod tray;
 mod user;
 extern crate clap;
 use anyhow::Result;

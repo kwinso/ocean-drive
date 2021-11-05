@@ -16,6 +16,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
+#[derive(Clone)]
 pub struct RemoteDaemon {
     client_ref: Arc<Mutex<Client>>,
     config: Config,
@@ -38,48 +39,60 @@ impl RemoteDaemon {
         })
     }
 
-    pub fn start(&mut self) -> Result<()> {
+    pub fn start_sync_loop(&mut self) -> Result<()> {
         loop {
-            let mut client = util::lock_ref_when_free(&self.client_ref);
-            let mut versions = util::lock_ref_when_free(&self.versions_ref);
-            let mut versions_list = versions.list().unwrap();
-
-            match self.sync_dir(
-                &self.remote_dir_id,
-                PathBuf::from_str(&self.config.local_dir).unwrap(),
-                &client,
-                &mut versions_list,
-            ) {
-                Ok(_) => {}
-                Err(e) => {
-                    if let Some(err) = e.downcast_ref::<DriveError>() {
-                        match err {
-                            DriveError::Unauthorized => {
-                                match auth::util::update_for_shared_client(&mut client) {
-                                    Ok(_) => {
-                                        println!("Info: Client authorization was updated since it was out of date.");
-                                        drop(client);
-                                        drop(versions);
-                                        continue;
-                                    }
-                                    Err(err) => bail!(err),
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    bail!("Unable to get updates from remote.\nDetails: {}", e);
-                }
+            match self.sync() {
+                Ok(success) => {
+                    if !success { continue }
+                },
+                Err(e) => bail!(e),
             }
-
-            versions.save(versions_list).unwrap();
-            // Make shared references avaliable again
-            drop(versions);
-            drop(client);
-
             std::thread::sleep(std::time::Duration::from_secs(10));
         }
+    }
+
+    /// Returns wether process was succseffull of there was some issues that was handled, but
+    /// synchronization wasn't finished
+    pub fn sync(&self) -> Result<bool> {
+        let mut client = util::lock_ref_when_free(&self.client_ref);
+        let mut versions = util::lock_ref_when_free(&self.versions_ref);
+        let mut versions_list = versions.list().unwrap();
+
+        match self.sync_dir(
+            &self.remote_dir_id,
+            PathBuf::from_str(&self.config.local_dir).unwrap(),
+            &client,
+            &mut versions_list,
+        ) {
+            Ok(_) => {}
+            Err(e) => {
+                if let Some(err) = e.downcast_ref::<DriveError>() {
+                    match err {
+                        DriveError::Unauthorized => {
+                            match auth::util::update_for_shared_client(&mut client) {
+                                Ok(_) => {
+                                    println!("Info: Client authorization was updated since it was out of date.");
+                                    drop(client);
+                                    drop(versions);
+                                    return Ok(false);
+                                }
+                                Err(err) => bail!(err),
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                bail!("Unable to get updates from remote.\nDetails: {}", e);
+            }
+        }
+
+        versions.save(versions_list).unwrap();
+        // Make shared references avaliable again
+        drop(versions);
+        drop(client);
+
+        Ok(true)
     }
 
     fn sync_dir(
@@ -210,7 +223,12 @@ impl RemoteDaemon {
         Ok(())
     }
 
-    fn save_file(&self, client: &MutexGuard<Client>, file: &File, file_path: PathBuf) -> Result<()> {
+    fn save_file(
+        &self,
+        client: &MutexGuard<Client>,
+        file: &File,
+        file_path: PathBuf,
+    ) -> Result<()> {
         let contents = client.download_file(file.id.as_ref().unwrap()).unwrap();
 
         match fs::OpenOptions::new()

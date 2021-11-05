@@ -6,3 +6,5 @@ pub struct Creds {
     pub client_id: String,
     pub client_secret: String,
 }
+
+// VIM ROCKS!

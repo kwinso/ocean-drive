@@ -1,7 +1,8 @@
 mod local;
-mod remote;
+pub mod remote;
 mod util;
 mod versions;
+use crate::tray::Tray;
 use crate::{
     auth::{util::update_for_shared_client, Creds},
     files,
@@ -32,9 +33,9 @@ pub fn run() -> Result<()> {
     let remote_dir = get_remote_dir(&config.drive.dir, &mut client)?;
     let versions = Arc::new(Mutex::new(Versions::new(conf_dir.join("versions.json"))?));
 
-    let mut daemons = vec![];
+    let mut threads = vec![];
     // Start 2 threads for remote and local daemons
-    for i in 1..=2 {
+    for i in 1..=3 {
         let cl = Arc::clone(&client);
         let v = Arc::clone(&versions);
         let c = config.clone();
@@ -49,22 +50,29 @@ pub fn run() -> Result<()> {
                     let mut d =
                         remote::RemoteDaemon::new(c.clone(), cl.clone(), v, rdir_id.clone())?;
 
-                    d.start()?;
-                } else {
+                    d.start_sync_loop()?;
+                } else if i == 2 {
                     let d = local::LocalDaemon::new(c, cl.clone(), v, rdir_id.clone())?;
 
                     d.start()?;
+                } else {
+                    let d = remote::RemoteDaemon::new(c.clone(), cl.clone(), v, rdir_id.clone())?;
+
+                    // TODO: Make certain path for the trayicon (e.g. in /opt)
+                    let tray = Tray::setup("./trayicon.png", d)?;
+                    tray.start();
                 }
 
                 Ok(())
             })?;
 
-        daemons.push(daemon);
+        threads.push(daemon);
     }
 
-    for d in daemons {
-        if let Err(e) = d.join() {
-            bail!("Unable to start a thread.\nDetails: {:?}", e);
+    for d in threads {
+        let d = d.join();
+        if let Err(e) = d {
+            bail!("Fatal error in a thread.\nDetails: {:#?}", e);
         }
     }
 
