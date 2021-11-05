@@ -41,7 +41,11 @@ pub fn run() -> Result<()> {
         let c = config.clone();
         let rdir_id = remote_dir.id.clone().unwrap();
 
-        let name = if i == 1 { "remote" } else { "local" }.to_string();
+        let name = match i {
+            1 => "remote",
+            2 =>  "local",
+            _ => "tray"
+        }.to_string();
 
         let daemon = thread::Builder::new()
             .name(name)
