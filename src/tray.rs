@@ -4,6 +4,8 @@ use crate::sync::remote::RemoteDaemon;
 use anyhow::Result;
 use gtk::prelude::*;
 use libappindicator::{AppIndicator, AppIndicatorStatus};
+use std::process::Command;
+use webbrowser;
 
 pub struct Tray {
     tray: AppIndicator,
@@ -11,7 +13,12 @@ pub struct Tray {
 }
 
 impl Tray {
-    pub fn setup(icon: &str, remote: RemoteDaemon) -> Result<Self> {
+    pub fn setup(
+        icon: &str,
+        remote: RemoteDaemon,
+        remote_dir_id: String,
+        local_path: String,
+    ) -> Result<Self> {
         gtk::init()?;
 
         let mut t = Self {
@@ -29,9 +36,37 @@ impl Tray {
             Ok(())
         })?;
 
+        t.add_menu_item("Open in browser", move || -> Result<()> {
+
+            match webbrowser::open(&format!(
+                "https://drive.google.com/drive/folders/{}",
+                remote_dir_id
+            )) {
+                Err(e) => {
+                    eprintln!("Tray: Unable to open root directory in browser: {}", e) 
+                }
+                _ => {}
+
+            }
+            Ok(())
+        })?;
+
+        t.add_menu_item("Open local folder", move || -> Result<()> {
+            match Command::new("xdg-open")
+                .args([&local_path])
+                .output() {
+                    Err(e) => {
+                        eprintln!("Tray: Failed to open local folder in default file explorer: {}", e);
+                    },
+                    _ => {}
+                }
+
+            Ok(())
+        })?;
+
         t.add_menu_item("Stop Ocean", || -> Result<()> {
             gtk::main_quit();
-            println!("Info: Stopped from tray. Exitting.");
+            println!("Tray: Received stop command. Exitting.");
             std::process::exit(0);
         })
         .unwrap();

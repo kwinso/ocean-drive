@@ -9,7 +9,7 @@ mod sync;
 mod tray;
 mod user;
 extern crate clap;
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::{App, SubCommand};
 
 // TODO:
@@ -40,8 +40,7 @@ fn main() -> Result<()> {
         "setup" => setup::run(cmd.subcommand().1.unwrap()),
         "run" => sync::run(),
         _ => {
-            println!("Unknown subcommand. Try 'ocean-drive --help'");
-            Ok(())
+            bail!("Unknown subcommand. Try 'ocean-drive --help'");
         }
     }
 }

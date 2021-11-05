@@ -43,9 +43,10 @@ pub fn run() -> Result<()> {
 
         let name = match i {
             1 => "remote",
-            2 =>  "local",
-            _ => "tray"
-        }.to_string();
+            2 => "local",
+            _ => "tray",
+        }
+        .to_string();
 
         let daemon = thread::Builder::new()
             .name(name)
@@ -63,7 +64,7 @@ pub fn run() -> Result<()> {
                     let d = remote::RemoteDaemon::new(c.clone(), cl.clone(), v, rdir_id.clone())?;
 
                     // TODO: Make certain path for the trayicon (e.g. in /opt)
-                    let tray = Tray::setup("./trayicon.png", d)?;
+                    let tray = Tray::setup("./trayicon.png", d, rdir_id, c.local_dir)?;
                     tray.start();
                 }
 
@@ -73,10 +74,12 @@ pub fn run() -> Result<()> {
         threads.push(daemon);
     }
 
-    for d in threads {
-        let d = d.join();
-        if let Err(e) = d {
-            bail!("Fatal error in a thread.\nDetails: {:#?}", e);
+    for t in threads {
+        // TODO: I hate Result<Result<...>> for t.join()
+        let name = t.thread().name().unwrap_or("no_name").to_string();
+        let started = t.join();
+        if let Err(e) = started {
+            bail!("Fatal error in a thread {:?}.\nDetails: {:#?}", name, e);
         }
     }
 

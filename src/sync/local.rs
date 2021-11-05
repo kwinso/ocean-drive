@@ -11,7 +11,7 @@ use crate::{
     setup::Config,
     sync::versions::{Version, Versions, VersionsList},
 };
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use chrono;
 use md5;
 use notify::{watcher, DebouncedEvent, RecursiveMode, Watcher};
@@ -23,17 +23,17 @@ use std::{
 };
 
 pub struct LocalDaemon {
-    client_ref: Arc<Mutex<Client>>,
-    local_root: PathBuf,
+    client: Arc<Mutex<Client>>,
+    root_path: PathBuf,
     remote_root_id: String,
-    versions_ref: Arc<Mutex<Versions>>,
+    versions: Arc<Mutex<Versions>>,
 }
 
 impl LocalDaemon {
     pub fn new(
         config: Config,
-        client_ref: Arc<Mutex<Client>>,
-        versions_ref: Arc<Mutex<Versions>>,
+        client: Arc<Mutex<Client>>,
+        versions: Arc<Mutex<Versions>>,
         remote_dir_id: String,
     ) -> Result<Self> {
         let local_root = Path::new(&config.local_dir).to_path_buf();
@@ -46,9 +46,9 @@ impl LocalDaemon {
         }
 
         return Ok(Self {
-            versions_ref,
-            client_ref,
-            local_root,
+            versions,
+            client,
+            root_path: local_root,
             remote_root_id: remote_dir_id,
         });
     }
@@ -58,57 +58,119 @@ impl LocalDaemon {
         let (tx, rx) = channel();
         // Create a watcher object, delivering debounced events.
         // The notification back-end is selected based on the platform.
-        let mut watcher = watcher(tx, Duration::from_secs(5)).unwrap();
+        let mut watcher = watcher(tx, Duration::from_secs(5)).context(
+            "Failed to create a watcher object for getting updates from local directory.",
+        )?;
 
         // Add a path to be watched. All files and directories at that path and
         // below will be monitored for changes.
         watcher
-            .watch(&self.local_root, RecursiveMode::Recursive)
-            .unwrap();
+            .watch(&self.root_path, RecursiveMode::Recursive)
+            .context("Failed to start receiving updates from local directory.")?;
 
         loop {
-            match rx.recv() {
-                Ok(event) => {
-                    let client = util::lock_ref_when_free(&self.client_ref);
-                    let mut versions = util::lock_ref_when_free(&self.versions_ref);
-                    let mut v_list = versions.list()?;
+            let event = rx
+                .recv()
+                .context("Unable to continue getting updates from local folder")?;
+            let client = util::lock_ref_when_free(&self.client);
+            let mut versions = util::lock_ref_when_free(&self.versions);
+            let mut v_list = versions.list()?;
 
-                    match &event {
-                        DebouncedEvent::Create(f) => {
-                            self.handle_write(&f, &client, &mut v_list)?;
-                        }
-                        DebouncedEvent::Write(f) => {
-                            if f.is_file() {
-                                self.handle_write(&f, &client, &mut v_list)?;
-                            }
-                        }
-                        DebouncedEvent::Rename(old, new) => {
-                            let parent = new
-                                .parent()
-                                .expect(&format!("Failed to get file parent: {:?}", new.display()));
-
-                            self.handle_rename(
-                                old.to_path_buf(),
-                                new.to_path_buf(),
-                                parent.to_path_buf(),
-                                &client,
-                                &mut v_list,
-                            )?;
-                        }
-                        DebouncedEvent::Remove(f) => {
-                            self.handle_delete(f.to_path_buf(), &client, &mut v_list)?
-                        }
-                        _ => {}
-                    }
-
-                    versions.save(v_list)?;
-
-                    drop(versions);
-                    drop(client);
+            match &event {
+                DebouncedEvent::Create(f) => {
+                    self.handle_write(&f, &client, &mut v_list)?;
                 }
-                Err(e) => bail!("Unable to continue watching local files.\nDetails: {}", e),
+                DebouncedEvent::Write(f) => {
+                    if f.is_file() {
+                        self.handle_write(&f, &client, &mut v_list)?;
+                    }
+                }
+                DebouncedEvent::Rename(old, new) => {
+                    let parent = new.parent().with_context(|| {
+                        format!(
+                            "Failed to get file parent on renamed file {:?}",
+                            new.display()
+                        )
+                    })?;
+
+                    self.handle_rename(
+                        old.to_path_buf(),
+                        new.to_path_buf(),
+                        parent.to_path_buf(),
+                        &client,
+                        &mut v_list,
+                    )?;
+                }
+                DebouncedEvent::Remove(f) => {
+                    self.handle_delete(f.to_path_buf(), &client, &mut v_list)?
+                }
+                _ => {}
             }
+
+            versions.save(v_list)?;
+
+            drop(versions);
+            drop(client);
         }
+    }
+
+    // TODO: Move to some utils mod
+    /// Moves the file into the path prefixed with timestamp to differ it from other copies
+    /// Returns `PathBuf` with new file
+    /// This is an util function
+    fn create_local_copy(&self, f: &PathBuf) -> Result<PathBuf> {
+        let parent_path = f.parent();
+        let name = self.get_file_name(f.clone())?;
+
+        // We start path for the new file with it's parent
+        let mut new_path = parent_path
+            .clone()
+            .unwrap_or(&Path::new("")) // It's root if it's no parent
+            .to_path_buf()
+            .display()
+            .to_string();
+
+        // Then we add slash because parent is a directory
+        new_path.push_str("/");
+
+        // New file name is built using 2 parts: time tag and the old name
+        let t = chrono::Local::now();
+        let mut new_name = t.format("[%d.%m.%y %H:%M:%S] ").to_string();
+        new_name.push_str(&name);
+
+        // Finish building new file path
+        new_path.push_str(&new_name);
+
+        // Move our file to the new path. Old path will be overwriten by remote daemon
+        fs::rename(f, &new_path).with_context(|| {
+            format!(
+                "Error creating local copy {:?} for the file {:?},",
+                new_path,
+                f.display()
+            )
+        })?;
+
+        Ok(Path::new(&new_path).to_path_buf())
+    }
+
+    /// Retrieves a readable file name
+    /// In other cases it'll throw an error
+    fn get_file_name(&self, f: &PathBuf) -> Result<&str> {
+        let f = f.clone();
+        let name = f
+            .file_name()
+            .with_context(|| format!("Unable to get file / directory name {:?}", f.display()))?
+            .to_str()
+            .clone();
+
+        if name.is_none() {
+            bail!(
+                "Unable to read file / directory name {:?}. Perhaps, it has UTF-8 non-valid name",
+                f.display()
+            );
+        }
+
+        Ok(name.unwrap())
     }
 
     /// Handles logic for new and updated files
@@ -133,44 +195,9 @@ impl LocalDaemon {
             return Ok(());
         }
 
-        bail!("Failed to get file parent: {:?}", f.display());
-    }
+        println!("Warn: Failed to get file parent: {:?}", f.display());
 
-    /// Returns `PathBuf` with new file
-    fn create_local_copy(&self, f: &PathBuf) -> Result<PathBuf> {
-        let parent_path = f.parent();
-        let name = f
-            .file_name()
-            .expect(&format!(
-                "Unable to identify name for the file {:?}",
-                f.display()
-            ))
-            .to_str()
-            .unwrap();
-
-        // We start path for the new file with it's parent
-        let mut new_path = parent_path
-            .clone()
-            .unwrap_or(&Path::new("")) // It's root if it's no parent
-            .to_path_buf()
-            .display()
-            .to_string();
-
-        // Then we add slash because parent is a directory
-        new_path.push_str("/");
-
-        // New file name is built using 2 parts: time tag and the old name
-        let t = chrono::Local::now();
-        let mut new_name = t.format("[%d.%m.%y %H:%M:%S] ").to_string();
-        new_name.push_str(&name);
-
-        // Finish building new file path
-        new_path.push_str(&new_name);
-
-        // Move our file to the new path. Old path will be overwriten by remote daemon
-        fs::rename(f, &new_path)?;
-
-        Ok(Path::new(&new_path).to_path_buf())
+        Ok(())
     }
 
     fn handle_rename(
@@ -190,7 +217,7 @@ impl LocalDaemon {
         if !parent
             .display()
             .to_string()
-            .starts_with(&self.local_root.display().to_string())
+            .starts_with(&self.root_path.display().to_string())
         {
             return self.handle_delete(old_file, client, v_list);
         }
@@ -208,30 +235,21 @@ impl LocalDaemon {
             // Remove the old info about the file
             v_list.remove(&info.0);
 
-            if let Some(new_name) = new_file.file_name() {
-                let updated = client.rename_file(
-                    info.0,
-                    new_name.to_str().unwrap_or("[non-readable name]"),
-                    parent_id.clone(),
-                )?;
+            let new_name = self.get_file_name(&new_file)?;
 
-                // Save the new version (then remote daemon won't update this file again since it's
-                // already in sync with the cloud)
-                let new_v = Version {
-                    md5: updated.md5,
-                    path: new_file.display().to_string(),
-                    version: updated.version.unwrap_or(String::from("1")),
-                    is_folder: false,
-                    parent_id,
-                };
+            let updated = client.rename_file(info.0, new_name, parent_id.clone())?;
 
-                v_list.insert(updated.id.unwrap(), new_v);
-            } else {
-                bail!(
-                    "Unable to get a file name for file: {:?}",
-                    new_file.display()
-                );
-            }
+            // Save the new version (then remote daemon won't update this file again since it's
+            // already in sync with the cloud)
+            let new_v = Version {
+                md5: updated.md5,
+                path: new_file.display().to_string(),
+                version: updated.version.unwrap_or(String::from("1")),
+                is_folder: false,
+                parent_id,
+            };
+
+            v_list.insert(updated.id.unwrap(), new_v);
         } else {
             // If file was not on versions list earlier, this file is completly new so handle it like a
             // new file
@@ -269,15 +287,7 @@ impl LocalDaemon {
             return Ok(());
         }
 
-        let d = dir.clone();
-        let name = d.file_name().unwrap().to_str().clone();
-
-        if name.is_none() {
-            bail!("Unable to read directory name {:?}", dir.display());
-        }
-
-
-        let name = name.unwrap();
+        let name = self.get_file_name(&dir)?;
 
         let parent_id = if let Some(info) = Versions::find_item_by_path(parent.clone(), v_list) {
             info.0
@@ -288,27 +298,27 @@ impl LocalDaemon {
         if let Some(remote) = client.get_file_by_name(name, Some(parent_id.clone()))? {
             if !remote.trashed.unwrap_or(false) {
                 let v = Versions::find_item_by_path(dir.clone(), v_list);
-
                 // Creates a copy of the local directory if remote and local are different
                 // or if there's no version in the versions file but we still get it untrashed in
                 // the cloud
                 if v.is_none() || v.as_ref().unwrap().1.version != remote.version.unwrap() {
+                    let copy = self.create_local_copy(&dir);
+                    if let Err(e) = copy {
+                        println!("Warn: Was unable to create a local copy for the directory {:?}. This dir won't be uploaded to drive.", dir.display());
+                        println!("Cause: {}", e);
+                        return Ok(());
+                    }
+                    dir = copy.unwrap();
+
                     // Remove version if exists
                     if v.is_some() {
                         v_list.remove(&v.unwrap().0);
                     }
-                    dir = self.create_local_copy(&dir)?;
                 }
             }
         }
 
-        let new = client.create_dir(
-            dir.file_name()
-                .unwrap()
-                .to_str()
-                .unwrap_or("[non-readable name]"),
-            parent_id.clone(),
-        )?;
+        let new = client.create_dir(self.get_file_name(&dir)?, parent_id.clone())?;
 
         let v = Version {
             version: new.version.unwrap_or(String::from("1")),
@@ -322,11 +332,23 @@ impl LocalDaemon {
 
         // After we create a dir, we should upload all of it's children
         for f in fs::read_dir(&dir)? {
-            let p = f?.path();
+            let p = f
+                .with_context(|| {
+                    format!(
+                        "Unable to read directory enrty when uploading directory {:?}",
+                        dir.display()
+                    )
+                })?
+                .path();
+
             if p.is_dir() {
-                self.upload_dir(p, dir.clone(), client, v_list)?;
+                if let Err(e) = self.upload_dir(p, dir.clone(), client, v_list) {
+                    println!("Failed to upload directory {:?}\nCause: {}", p.display(), e);
+                }
             } else if p.is_file() {
-                self.upload_file(p, dir.clone(), client, v_list)?;
+                if let Err(e) = self.upload_file(p, dir.clone(), client, v_list) {
+                    println!("Failed to upload file {:?}\nCause: {}", p.display(), e);
+                }
             }
         }
 
@@ -354,20 +376,12 @@ impl LocalDaemon {
             // This check is needed because of the RemoteDaemon that can write to file and then
             // save the version. So when we meet write, it does not always mean the content was
             // updated
-            if local.1.md5.as_ref().unwrap_or(&String::from("")) != &hash {
-                v_list.remove(&local.0);
-            } else {
+            if local.1.md5.as_ref().unwrap_or(&String::from("")) == &hash {
                 return Ok(());
             }
         }
 
-        let c = f.clone();
-        let name = c.file_name().unwrap().to_str();
-
-        if name.is_none() {
-            bail!("Unable to read file name {:?}", f.display());
-        }
-        let name = name.unwrap();
+        let name = self.get_file_name(&f)?;
 
         let parent_id = if let Some(info) = Versions::find_item_by_path(parent.clone(), v_list) {
             info.0
@@ -393,16 +407,12 @@ impl LocalDaemon {
         let new: File;
 
         if let Some(local) = local {
+            // Remove old version from the versions list
+            v_list.remove(&local.0);
+            // And the upload the new on into the cloud
             new = client.update_file(local.0, content)?;
         } else {
-            new = client.upload_file(
-                f.file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap_or("[non-readable name]"),
-                parent_id.clone(),
-                content,
-            )?;
+            new = client.upload_file(self.get_file_name(&f)?, parent_id.clone(), content)?;
         }
         // Add information about the file to the versions file so it won't be proccessed twice
         let new_v = Version {
